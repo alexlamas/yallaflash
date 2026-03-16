@@ -10,6 +10,7 @@ import {
   X,
   CircleNotch,
   Sparkle,
+  Coin,
 } from "@phosphor-icons/react";
 import { Sentence, SentenceInput } from "../types/word";
 import { SentenceService } from "../services/sentenceService";
@@ -212,6 +213,10 @@ export function ExampleSentenceManager({
                   <Sparkle className="w-3 h-3" />
                 )}
                 Generate with Claude
+                <span className="flex items-center gap-0.5 text-purple-600 ml-0.5">
+                  <Coin className="h-3 w-3" weight="fill" />
+                  <span className="text-xs">1</span>
+                </span>
               </Button>
             </div>
             <Textarea
@@ -307,6 +312,10 @@ export function ExampleSentenceManager({
                       <Sparkle className="w-3 h-3" />
                     )}
                     Generate with Claude
+                    <span className="flex items-center gap-0.5 text-purple-600 ml-0.5">
+                      <Coin className="h-3 w-3" weight="fill" />
+                      <span className="text-xs">1</span>
+                    </span>
                   </Button>
                 </div>
                 <Textarea

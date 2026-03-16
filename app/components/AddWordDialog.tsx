@@ -449,12 +449,14 @@ export default function AddWordDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2 rounded-full">
-          <PlusIcon weight="bold" />
-          <span className="hidden text-sm sm:block">New word</span>
-        </Button>
-      </DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button variant="outline" className="gap-2 rounded-full">
+            <PlusIcon weight="bold" />
+            <span className="hidden text-sm sm:block">New word</span>
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className={mode === "bulk" && bulkStep === "preview" ? "max-w-2xl" : ""}>
         <DialogHeader>
           <DialogTitle>New {mode === "bulk" ? "words" : "word"}</DialogTitle>

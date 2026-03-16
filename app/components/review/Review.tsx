@@ -20,6 +20,7 @@ import {
   Lightbulb,
   CircleNotch,
   NoteBlank,
+  Coin,
 } from "@phosphor-icons/react";
 import { ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -334,6 +335,10 @@ export function Review() {
                       <>
                         <Lightbulb className="h-4 w-4" />
                         Get a hint
+                        <span className="flex items-center gap-0.5 text-purple-600 ml-1">
+                          <Coin className="h-3.5 w-3.5" weight="fill" />
+                          <span className="text-xs">1</span>
+                        </span>
                       </>
                     )}
                   </Button>
