@@ -42,6 +42,10 @@ export function Review() {
   const [showNotes, setShowNotes] = useState(false);
   const [sentences, setSentences] = useState<Sentence[]>([]);
   const hasLoadedRef = useRef(false);
+  const sessionStartRef = useRef<number | null>(null);
+  const sessionReviewCountRef = useRef(0);
+  const sessionRatingsRef = useRef<number[]>([]);
+  const sessionEndedRef = useRef(false);
   const [feedbackAnimation, setFeedbackAnimation] = useState<{
     isPlaying: boolean;
     text: string;
@@ -118,9 +122,47 @@ export function Review() {
   useEffect(() => {
     if (!hasLoadedRef.current && session?.user) {
       hasLoadedRef.current = true;
+      sessionStartRef.current = Date.now();
+      sessionReviewCountRef.current = 0;
+      sessionRatingsRef.current = [];
+      sessionEndedRef.current = false;
+      posthog.capture("review_session_started");
       loadNextWord();
     }
   }, [loadNextWord, session?.user]);
+
+  // Fire session_completed when we run out of due words, or on unmount
+  useEffect(() => {
+    if (!isLoading && !currentWord && !sessionEndedRef.current && sessionStartRef.current) {
+      sessionEndedRef.current = true;
+      const durationSeconds = Math.round((Date.now() - sessionStartRef.current) / 1000);
+      posthog.capture("review_session_completed", {
+        word_count: sessionReviewCountRef.current,
+        duration_seconds: durationSeconds,
+        avg_rating: sessionRatingsRef.current.length
+          ? sessionRatingsRef.current.reduce((a, b) => a + b, 0) / sessionRatingsRef.current.length
+          : null,
+        reason: "no_more_due",
+      });
+    }
+  }, [isLoading, currentWord]);
+
+  useEffect(() => {
+    return () => {
+      if (!sessionEndedRef.current && sessionStartRef.current && sessionReviewCountRef.current > 0) {
+        sessionEndedRef.current = true;
+        const durationSeconds = Math.round((Date.now() - sessionStartRef.current) / 1000);
+        posthog.capture("review_session_completed", {
+          word_count: sessionReviewCountRef.current,
+          duration_seconds: durationSeconds,
+          avg_rating: sessionRatingsRef.current.length
+            ? sessionRatingsRef.current.reduce((a, b) => a + b, 0) / sessionRatingsRef.current.length
+            : null,
+          reason: "left",
+        });
+      }
+    };
+  }, []);
 
   // Fetch sentences when word changes
   useEffect(() => {
@@ -172,7 +214,12 @@ export function Review() {
     );
 
     // Track review for funnel analysis
-    posthog.capture("word_reviewed", { rating });
+    sessionReviewCountRef.current += 1;
+    sessionRatingsRef.current.push(rating);
+    posthog.capture("word_reviewed", {
+      rating,
+      session_position: sessionReviewCountRef.current,
+    });
 
     // Calculate next review time text
     let nextReviewText = "";

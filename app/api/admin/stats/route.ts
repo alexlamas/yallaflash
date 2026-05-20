@@ -1,7 +1,38 @@
 import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createClient as createAdminClient, SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+
+type AuthUser = { id: string; created_at: string };
+
+async function listAllUsers(adminClient: SupabaseClient): Promise<AuthUser[]> {
+  const all: AuthUser[] = [];
+  let page = 1;
+  const perPage = 1000;
+  while (true) {
+    const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+    const users = data?.users || [];
+    for (const u of users) {
+      if (u.id && u.created_at) all.push({ id: u.id, created_at: u.created_at });
+    }
+    if (users.length < perPage) break;
+    page += 1;
+    if (page > 20) break;
+  }
+  return all;
+}
+
+function dayKey(iso: string): string {
+  return new Date(iso).toISOString().split("T")[0];
+}
+
+function daysAgo(days: number): Date {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d;
+}
 
 export async function GET() {
   try {
@@ -14,7 +45,6 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check if user is admin or reviewer
     const { data: roleData } = await supabase
       .from("user_roles")
       .select("role")
@@ -33,13 +63,10 @@ export async function GET() {
     }
 
     const adminClient = createAdminClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
+      auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Calculate week boundaries
+    // Week boundaries
     const now = new Date();
     const startOfThisWeek = new Date(now);
     const dayOfWeek = now.getUTCDay();
@@ -49,86 +76,105 @@ export async function GET() {
 
     const startOfLastWeek = new Date(startOfThisWeek);
     startOfLastWeek.setUTCDate(startOfLastWeek.getUTCDate() - 7);
-
     const endOfLastWeek = new Date(startOfThisWeek);
 
-    // Get all users
-    const { data: authUsers } = await adminClient.auth.admin.listUsers();
-    const totalUsers = authUsers?.users?.length || 0;
+    // Activity window for retention/cohort/DAU calculations: last 45 days
+    const activityWindowStart = daysAgo(45);
 
-    // Count signups this week
-    const signupsThisWeek = authUsers?.users?.filter(u =>
-      new Date(u.created_at) >= startOfThisWeek
-    ).length || 0;
+    // Fetch all auth users (paginated)
+    const allUsers = await listAllUsers(adminClient);
+    const totalUsers = allUsers.length;
 
-    // Count signups last week
-    const signupsLastWeek = authUsers?.users?.filter(u => {
+    const signupsThisWeek = allUsers.filter(u => new Date(u.created_at) >= startOfThisWeek).length;
+    const signupsLastWeek = allUsers.filter(u => {
       const created = new Date(u.created_at);
       return created >= startOfLastWeek && created < endOfLastWeek;
-    }).length || 0;
+    }).length;
 
-    // Get WAU - users who reviewed on at least 2 different days this week
-    const { data: wauData } = await adminClient
+    // Activity data for retention window
+    const { data: activityData } = await adminClient
       .from("word_progress")
       .select("user_id, updated_at")
-      .gte("updated_at", startOfThisWeek.toISOString());
+      .gte("updated_at", activityWindowStart.toISOString());
 
-    // Count unique days per user
-    const userDays = new Map<string, Set<string>>();
-    for (const row of wauData || []) {
+    // Build per-user set of active days
+    const userActiveDays = new Map<string, Set<string>>();
+    // Track first ever activity per user
+    const userFirstActivity = new Map<string, string>();
+    for (const row of activityData || []) {
       if (!row.user_id || !row.updated_at) continue;
-      const day = new Date(row.updated_at).toISOString().split('T')[0];
-      if (!userDays.has(row.user_id)) {
-        userDays.set(row.user_id, new Set());
+      const day = dayKey(row.updated_at);
+      if (!userActiveDays.has(row.user_id)) userActiveDays.set(row.user_id, new Set());
+      userActiveDays.get(row.user_id)!.add(day);
+
+      const prev = userFirstActivity.get(row.user_id);
+      if (!prev || row.updated_at < prev) {
+        userFirstActivity.set(row.user_id, row.updated_at);
       }
-      userDays.get(row.user_id)!.add(day);
     }
-    // Active = reviewed on 2+ different days
-    const wau = Array.from(userDays.values()).filter(days => days.size >= 2).length;
 
-    // Get WAU last week for comparison (same logic)
-    const { data: wauLastWeekData } = await adminClient
-      .from("word_progress")
-      .select("user_id, updated_at")
-      .gte("updated_at", startOfLastWeek.toISOString())
-      .lt("updated_at", endOfLastWeek.toISOString());
+    // WAU = active on 2+ different days this week
+    let wau = 0;
+    let wauChange = 0;
+    const thisWeekKey = dayKey(startOfThisWeek.toISOString());
+    const lastWeekKey = dayKey(startOfLastWeek.toISOString());
+    for (const days of userActiveDays.values()) {
+      const thisWeekDays = Array.from(days).filter(d => d >= thisWeekKey);
+      const lastWeekDays = Array.from(days).filter(d => d >= lastWeekKey && d < thisWeekKey);
+      if (thisWeekDays.length >= 2) wau += 1;
+      if (lastWeekDays.length >= 2) wauChange += 1;
+    }
 
-    const userDaysLastWeek = new Map<string, Set<string>>();
-    for (const row of wauLastWeekData || []) {
-      if (!row.user_id || !row.updated_at) continue;
-      const day = new Date(row.updated_at).toISOString().split('T')[0];
-      if (!userDaysLastWeek.has(row.user_id)) {
-        userDaysLastWeek.set(row.user_id, new Set());
+    // DAU trend: last 14 days
+    const dauTrend: { date: string; count: number }[] = [];
+    for (let i = 13; i >= 0; i -= 1) {
+      const d = daysAgo(i);
+      const k = dayKey(d.toISOString());
+      let count = 0;
+      for (const days of userActiveDays.values()) {
+        if (days.has(k)) count += 1;
       }
-      userDaysLastWeek.get(row.user_id)!.add(day);
+      dauTrend.push({ date: k, count });
     }
-    const wauChange = Array.from(userDaysLastWeek.values()).filter(days => days.size >= 2).length;
 
-    // Get reviews this week (sum of review_count increases would be complex, so count updated rows)
+    // Stickiness = DAU (today) / MAU (last 30 days)
+    const today = dayKey(now.toISOString());
+    const thirtyDaysAgoKey = dayKey(daysAgo(30).toISOString());
+    let dauToday = 0;
+    let mau = 0;
+    for (const days of userActiveDays.values()) {
+      if (days.has(today)) dauToday += 1;
+      const hasMonthActivity = Array.from(days).some(d => d >= thirtyDaysAgoKey);
+      if (hasMonthActivity) mau += 1;
+    }
+    const stickiness = mau > 0 ? dauToday / mau : 0;
+
+    // Reviews counts (week)
     const { count: reviewsThisWeek } = await adminClient
       .from("word_progress")
       .select("*", { count: "exact", head: true })
       .gte("updated_at", startOfThisWeek.toISOString());
 
-    // Get reviews last week
     const { count: reviewsLastWeek } = await adminClient
       .from("word_progress")
       .select("*", { count: "exact", head: true })
       .gte("updated_at", startOfLastWeek.toISOString())
       .lt("updated_at", endOfLastWeek.toISOString());
 
-    // Get total reviews (using RPC function)
-    const { data: totalReviewsData } = await adminClient.rpc('get_user_review_stats');
-    const totalReviews = totalReviewsData?.reduce((sum: number, r: { total_reviews: number }) => sum + (r.total_reviews || 0), 0) || 0;
+    // Total reviews via RPC (sum of review_count)
+    const { data: totalReviewsData } = await adminClient.rpc("get_user_review_stats");
+    const totalReviews = totalReviewsData?.reduce(
+      (sum: number, r: { total_reviews: number }) => sum + (r.total_reviews || 0),
+      0,
+    ) || 0;
 
-    // Get custom words added this week
+    // Custom words counts
     const { count: customWordsThisWeek } = await adminClient
       .from("words")
       .select("*", { count: "exact", head: true })
       .not("user_id", "is", null)
       .gte("created_at", startOfThisWeek.toISOString());
 
-    // Get custom words added last week
     const { count: customWordsLastWeek } = await adminClient
       .from("words")
       .select("*", { count: "exact", head: true })
@@ -136,11 +182,80 @@ export async function GET() {
       .gte("created_at", startOfLastWeek.toISOString())
       .lt("created_at", endOfLastWeek.toISOString());
 
-    // Get total custom words
     const { count: totalCustomWords } = await adminClient
       .from("words")
       .select("*", { count: "exact", head: true })
       .not("user_id", "is", null);
+
+    // Activation funnel: signups -> onboarding_completed -> first review -> 2+ day active
+    const { data: profileRows } = await adminClient
+      .from("user_profiles")
+      .select("id, onboarding_completed");
+    const onboardedUserIds = new Set<string>(
+      (profileRows || [])
+        .filter(p => p.onboarding_completed && p.id)
+        .map(p => p.id as string),
+    );
+
+    // Activation: only count for users created in last 45d to keep it relevant + fresh
+    const fortyFiveDaysAgo = activityWindowStart.getTime();
+    const recentUsers = allUsers.filter(u => new Date(u.created_at).getTime() >= fortyFiveDaysAgo);
+    const recentSignups = recentUsers.length;
+    let recentOnboarded = 0;
+    let recentFirstReview = 0;
+    let recentMultiDay = 0;
+    for (const u of recentUsers) {
+      if (onboardedUserIds.has(u.id)) recentOnboarded += 1;
+      const days = userActiveDays.get(u.id);
+      if (days && days.size >= 1) recentFirstReview += 1;
+      if (days && days.size >= 2) recentMultiDay += 1;
+    }
+
+    // Day-N retention: for users who signed up exactly N days ago (±0), did they review on day N?
+    // We compute the cohort as users who signed up in [N+1, N] days ago (1-day cohort window),
+    // and check whether they had any activity on the N-th day after signup.
+    function dayNRetention(N: number): { cohortSize: number; returned: number; rate: number } {
+      const cohortStart = daysAgo(N + 7); // widen cohort for more signal
+      const cohortEnd = daysAgo(N);
+      let cohortSize = 0;
+      let returned = 0;
+      for (const u of allUsers) {
+        const created = new Date(u.created_at);
+        if (created < cohortStart || created >= cohortEnd) continue;
+        cohortSize += 1;
+        const days = userActiveDays.get(u.id);
+        if (!days) continue;
+        // window: from N days after signup to N+2 days after signup (give a small grace period)
+        const winStart = new Date(created);
+        winStart.setUTCDate(winStart.getUTCDate() + N);
+        winStart.setUTCHours(0, 0, 0, 0);
+        const winEnd = new Date(winStart);
+        winEnd.setUTCDate(winEnd.getUTCDate() + 2);
+        const winStartKey = dayKey(winStart.toISOString());
+        const winEndKey = dayKey(winEnd.toISOString());
+        const hit = Array.from(days).some(d => d >= winStartKey && d < winEndKey);
+        if (hit) returned += 1;
+      }
+      const rate = cohortSize > 0 ? returned / cohortSize : 0;
+      return { cohortSize, returned, rate };
+    }
+
+    const day1 = dayNRetention(1);
+    const day7 = dayNRetention(7);
+    const day30 = dayNRetention(30);
+
+    // Time-to-first-review (median, in hours) for recent signups who have any activity
+    const ttfrHours: number[] = [];
+    for (const u of recentUsers) {
+      const first = userFirstActivity.get(u.id);
+      if (!first) continue;
+      const delta = (new Date(first).getTime() - new Date(u.created_at).getTime()) / 36e5;
+      if (delta >= 0 && delta < 24 * 90) ttfrHours.push(delta);
+    }
+    ttfrHours.sort((a, b) => a - b);
+    const medianTimeToFirstReviewHours = ttfrHours.length
+      ? ttfrHours[Math.floor(ttfrHours.length / 2)]
+      : null;
 
     return NextResponse.json({
       wau,
@@ -154,6 +269,19 @@ export async function GET() {
       totalUsers,
       totalReviews,
       totalCustomWords: totalCustomWords || 0,
+      dauToday,
+      mau,
+      stickiness,
+      dauTrend,
+      activation: {
+        windowDays: 45,
+        signups: recentSignups,
+        onboarded: recentOnboarded,
+        firstReview: recentFirstReview,
+        multiDay: recentMultiDay,
+      },
+      retention: { day1, day7, day30 },
+      medianTimeToFirstReviewHours,
     });
   } catch (error) {
     console.error("Admin stats error:", error);

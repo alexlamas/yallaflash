@@ -160,6 +160,12 @@ export default function OnboardingPage() {
 
   function handleNext() {
     if (step < 4) {
+      posthog.capture("onboarding_step_completed", {
+        step,
+        step_name: step === 1 ? "name" : step === 2 ? "avatar" : "fluency",
+        provided_name: step === 1 ? name.trim().length > 0 : undefined,
+        fluency_level: step === 3 ? fluency : undefined,
+      });
       setStep(step + 1);
     } else {
       handleComplete();
