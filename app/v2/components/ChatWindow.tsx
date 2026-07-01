@@ -254,10 +254,24 @@ export function ChatWindow() {
         const result = await fetchJSON<{
           correct: boolean;
           arabizi: string;
+          english: string;
           script: string | null;
           next_review_date: string;
         }>("/api/v2/review/answer", { wordId, tier, submitted });
         refreshProgress();
+        // Verdict renders instantly from the deterministic grade; the tutor's
+        // commentary (script/root color) follows asynchronously.
+        appendLocalMessage("", [
+          {
+            type: "review_verdict",
+            correct: result.correct,
+            submitted,
+            arabizi: result.arabizi,
+            english: result.english,
+            script: result.script,
+            next_review_date: result.next_review_date,
+          },
+        ]);
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
         );
@@ -361,10 +375,22 @@ export function ChatWindow() {
       const result = await fetchJSON<{
         correct: boolean;
         arabizi: string;
+        english: string;
         script: string | null;
         next_review_date: string;
       }>("/api/v2/review/answer", { wordId: widget.word_id, tier: widget.tier, concede: true });
       refreshProgress();
+      appendLocalMessage("", [
+        {
+          type: "review_verdict",
+          correct: false,
+          conceded: true,
+          arabizi: result.arabizi,
+          english: result.english,
+          script: result.script,
+          next_review_date: result.next_review_date,
+        },
+      ]);
       await sendMessage(
         `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
       );
@@ -394,9 +420,19 @@ export function ChatWindow() {
       }
       return [];
     }
-    const hasStarted = visibleMessages.some((m) => m.role === "user");
+    // A brand-new user mid-onboarding has nothing to review yet -- don't
+    // offer a chip that can only dead-end.
+    const onboardingShowing = visibleMessages.some((m) =>
+      (m.widgets ?? []).some((w) => w.type === "onboarding_choice")
+    );
+    const hasStarted = visibleMessages.length > 1;
+    const review = {
+      label: hasStarted ? "Next word" : "Start review",
+      primary: true,
+      onClick: () => serveNext(),
+    };
     return [
-      { label: hasStarted ? "Next word" : "Start review", primary: true, onClick: () => serveNext() },
+      ...(onboardingShowing && !hasStarted ? [] : [review]),
       { label: "Add words", onClick: () => sendMessage("I want to add some new words") },
     ];
   })();
@@ -445,18 +481,33 @@ export function ChatWindow() {
     });
 
     if (inActiveView) {
-      // Stage layout: card first, the tutor's words as a compact strip below.
+      // Stage layout: review cards lead with the tutor's words as a strip
+      // below; conversational messages (onboarding, packs, previews) read
+      // top-down like normal chat.
+      const cardFirst = (message.widgets ?? []).some(
+        (w) => w.type === "quiz_mc" || w.type === "recall_input" || w.type === "produce_cold" || w.type === "word_card" || w.type === "review_verdict"
+      );
+      const strip = message.content && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.08, ease: "easeOut" }}
+        >
+          <TutorStrip text={message.content} />
+        </motion.div>
+      );
       return (
         <div key={message.id} className="w-full space-y-3">
-          {widgetElements}
-          {message.content && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, delay: 0.08, ease: "easeOut" }}
-            >
-              <TutorStrip text={message.content} />
-            </motion.div>
+          {cardFirst ? (
+            <>
+              {widgetElements}
+              {strip}
+            </>
+          ) : (
+            <>
+              {strip}
+              {widgetElements}
+            </>
           )}
         </div>
       );

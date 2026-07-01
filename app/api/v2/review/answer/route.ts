@@ -82,6 +82,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       correct,
       arabizi: word.arabizi,
+      english: word.english,
       script: word.script,
       etymology_note: word.etymology_note,
       etymology_confidence: word.etymology_confidence,

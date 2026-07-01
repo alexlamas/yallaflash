@@ -59,7 +59,9 @@ export function QuizMC({
               variant="outline"
               className={cn(
                 "justify-start h-auto py-2.5 text-left whitespace-normal hover:border-green-400 hover:bg-green-50/50",
-                selected === option && "border-green-500 bg-green-50"
+                // Neutral selected state -- the verdict card says right/wrong,
+                // a green highlight here would imply "correct" prematurely.
+                selected === option && "border-gray-400 bg-gray-50"
               )}
               disabled={selected !== null}
               onClick={() => handleSelect(option)}

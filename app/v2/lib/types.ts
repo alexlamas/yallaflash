@@ -113,12 +113,16 @@ export type Widget =
       cue: ReviewCue;
     }
   | { type: "add_words_preview"; proposals: WordProposal[] }
+  // Client-side only: rendered instantly from the deterministic grade, before
+  // (and independent of) the tutor's commentary.
   | {
       type: "review_verdict";
       correct: boolean;
+      conceded?: boolean;
+      submitted?: string;
+      arabizi: string;
+      english: string;
       script: string | null;
-      etymology_note: string | null;
-      etymology_confidence: "confident" | "uncertain" | null;
       next_review_date: string;
     }
   | { type: "session_summary"; reviewed: number; correct: number };

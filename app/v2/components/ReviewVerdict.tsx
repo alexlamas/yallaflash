@@ -2,20 +2,48 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Widget } from "@/app/v2/lib/types";
 
+function relativeTime(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "now";
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `~${hours}h`;
+  return `~${Math.round(hours / 24)}d`;
+}
+
 export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "review_verdict" }> }) {
+  const heading = widget.conceded ? "Answer revealed" : widget.correct ? "Correct" : "Not quite";
   return (
-    <Card className={cn("max-w-sm", widget.correct ? "bg-green-50/40 border-green-100" : "bg-red-50/40 border-red-100")}>
-      <CardContent className="p-4 space-y-1">
-        <div className="text-sm font-medium">{widget.correct ? "Correct" : "Not quite"}</div>
-        {widget.script && <div className="text-2xl" dir="rtl">{widget.script}</div>}
-        {widget.etymology_note && (
-          <div className="text-xs text-subtle pt-1 border-t mt-2">
-            {widget.etymology_confidence === "uncertain" && (
-              <span className="font-medium">Not certain -- </span>
-            )}
-            {widget.etymology_note}
+    <Card
+      className={cn(
+        "w-full max-w-md mx-auto rounded-2xl",
+        widget.correct ? "bg-green-50/70 border-green-200" : "bg-red-50/60 border-red-200"
+      )}
+    >
+      <CardContent className="p-5 text-center space-y-1.5">
+        <div
+          className={cn(
+            "text-xs font-semibold tracking-wide uppercase",
+            widget.correct ? "text-green-700" : "text-red-600"
+          )}
+        >
+          {heading}
+        </div>
+        {widget.script && (
+          <div className="text-3xl" dir="rtl">
+            {widget.script}
           </div>
         )}
+        <div className="text-lg font-medium text-heading">
+          {widget.arabizi} <span className="text-subtle font-normal">— {widget.english}</span>
+        </div>
+        {!widget.correct && !widget.conceded && widget.submitted && (
+          <div className="text-xs text-subtle">You said: {widget.submitted}</div>
+        )}
+        <div className="text-[11px] font-mono text-disabled pt-1">
+          next review {relativeTime(widget.next_review_date)}
+        </div>
       </CardContent>
     </Card>
   );

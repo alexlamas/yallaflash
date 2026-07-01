@@ -47,11 +47,13 @@ function Sapling({ x, y, s }: { x: number; y: number; s: number }) {
 }
 
 function Sprout({ x, y, s }: { x: number; y: number; s: number }) {
+  // Sprouts render ~1.5x their band scale -- at natural scale they read as
+  // specks and new words look like nothing was planted.
   return (
-    <g transform={`translate(${x},${y}) scale(${s})`}>
-      <path d="M0,0 C0,-2.5 0,-4.5 0,-6" stroke="#65a30d" strokeWidth={1.2} fill="none" />
-      <ellipse cx={-2.4} cy={-6.5} rx={2.6} ry={1.5} fill="#84cc16" transform="rotate(-24 -2.4 -6.5)" />
-      <ellipse cx={2.4} cy={-7} rx={2.6} ry={1.5} fill="#65a30d" transform="rotate(22 2.4 -7)" />
+    <g transform={`translate(${x},${y}) scale(${s * 1.5})`}>
+      <path d="M0,0 C0,-2.5 0,-4.5 0,-6" stroke="#65a30d" strokeWidth={1.4} fill="none" />
+      <ellipse cx={-2.4} cy={-6.5} rx={2.8} ry={1.7} fill="#84cc16" transform="rotate(-24 -2.4 -6.5)" />
+      <ellipse cx={2.4} cy={-7} rx={2.8} ry={1.7} fill="#65a30d" transform="rotate(22 2.4 -7)" />
     </g>
   );
 }

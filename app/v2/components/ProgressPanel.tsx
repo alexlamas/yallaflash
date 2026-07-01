@@ -215,14 +215,18 @@ export function ProgressPanel({ refreshKey }: { refreshKey: number }) {
                 <span className="font-medium text-heading truncate w-[72px] shrink-0">{word.arabizi}</span>
                 {retention === null ? (
                   <>
-                    <span className="flex-1 text-xs text-subtle truncate">{word.english}</span>
+                    <span className="flex-1 text-xs text-subtle truncate blur-[3px] hover:blur-none transition-all select-none">
+                      {word.english}
+                    </span>
                     <span className="font-mono text-[10px] text-disabled border border-gray-200 rounded px-1.5 py-0.5">
                       NEW
                     </span>
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 min-w-0 truncate text-xs text-subtle">{word.english}</span>
+                    <span className="flex-1 min-w-0 truncate text-xs text-subtle blur-[3px] hover:blur-none transition-all select-none">
+                      {word.english}
+                    </span>
                     <SignalBars retention={retention} />
                     <span
                       className={cn(
