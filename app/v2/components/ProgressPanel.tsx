@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { CedarForest } from "./CedarForest";
 import type { ProgressState } from "@/app/v2/lib/types";
 
 interface ProgressWord {
@@ -44,35 +45,47 @@ export function ProgressPanel({ refreshKey }: { refreshKey: number }) {
   }
 
   const total = data.counts.new + data.counts.learning + data.counts.learned;
+  // Learning counts as half-grown; only full cedars (learned) count fully.
+  const percent = total === 0 ? 0 : Math.round(((data.counts.learned + 0.5 * data.counts.learning) / total) * 100);
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
-        <div className="text-sm font-medium text-heading">Progress</div>
-        <div className="mt-2 flex items-baseline gap-2">
-          <span className="text-2xl font-semibold text-heading">{data.counts.dueNow}</span>
-          <span className="text-xs text-subtle">due now</span>
+      <div className="p-4 pb-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-heading">Your forest</span>
+          <span className="text-sm font-semibold text-heading">{percent}%</span>
         </div>
-        <div className="mt-3 space-y-1 text-xs text-subtle">
-          <div className="flex items-center gap-2">
-            <span className={cn("w-2 h-2 rounded-full", STATUS_DOT.new)} />
-            {data.counts.new} new
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={cn("w-2 h-2 rounded-full", STATUS_DOT.learning)} />
-            {data.counts.learning} learning
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={cn("w-2 h-2 rounded-full", STATUS_DOT.learned)} />
-            {data.counts.learned} learned
-          </div>
+        <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div
+            className="h-full bg-green-500 rounded-full transition-all duration-700"
+            style={{ width: `${percent}%` }}
+          />
         </div>
+      </div>
+
+      <CedarForest words={data.words} />
+
+      <div className="px-4 py-3 border-b flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-subtle">
+        <span className="font-medium text-heading">{data.counts.dueNow} due now</span>
+        <span className="flex items-center gap-1.5">
+          <span className={cn("w-2 h-2 rounded-full", STATUS_DOT.new)} />
+          {data.counts.new} new
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className={cn("w-2 h-2 rounded-full", STATUS_DOT.learning)} />
+          {data.counts.learning} learning
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className={cn("w-2 h-2 rounded-full", STATUS_DOT.learned)} />
+          {data.counts.learned} learned
+        </span>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {total === 0 && (
           <div className="text-xs text-subtle">
-            No words yet -- add some or start a pack in the chat.
+            Nothing planted yet -- add words or start a pack in the chat, and your cedars will grow
+            as you learn.
           </div>
         )}
         {data.words.map((word) => (

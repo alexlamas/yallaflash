@@ -23,7 +23,7 @@ export function WidgetRenderer({ widget, actions }: { widget: Widget; actions: W
     case "pack_list":
       return <PackList widget={widget} onStartPack={actions.onStartPack} />;
     case "word_card":
-      return <WordCard word={widget.word} />;
+      return <WordCard word={widget.word} imageUrl={widget.image_url} />;
     case "quiz_mc":
       return <QuizMC widget={widget} onAnswer={actions.onAnswer} />;
     case "recall_input":

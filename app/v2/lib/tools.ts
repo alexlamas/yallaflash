@@ -57,6 +57,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "search_images",
+    description:
+      "Search the shared image bank by concept (an English term, e.g. 'water', 'greetings'). Images are language-agnostic illustrations you can reference when presenting words. Returns matching concepts and URLs.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+  },
+  {
     name: "propose_words",
     description:
       "Stage parsed vocabulary as a preview widget for the user to confirm. Does not write to the database -- confirmation happens outside you.",
@@ -103,6 +113,8 @@ export async function executeTool(
       return getDueWords(ctx, typeof input.limit === "number" ? input.limit : 10);
     case "search_words":
       return searchWords(ctx, String(input.query ?? ""));
+    case "search_images":
+      return searchImages(ctx, String(input.query ?? ""));
     case "get_word_detail":
       return getWordDetail(ctx, String(input.word_id ?? ""));
     case "start_review":
@@ -154,15 +166,56 @@ async function searchWords(ctx: ToolContext, query: string) {
   return { result: data ?? [] };
 }
 
+async function searchImages(ctx: ToolContext, query: string) {
+  const safeQuery = query.replace(/[,()%_]/g, " ").trim();
+  if (!safeQuery) return { result: [] };
+
+  const { data, error } = await ctx.supabase
+    .from("v2_images")
+    .select("id, concept, url")
+    .ilike("concept", `%${safeQuery}%`)
+    .limit(10);
+
+  if (error) throw error;
+  return { result: data ?? [] };
+}
+
+// Best-effort concept match for a word: exact concept first, then substring.
+// The bank is language-agnostic (keyed by English concept), so this works
+// unchanged for any future language.
+async function findImageForWord(ctx: ToolContext, english: string): Promise<string | null> {
+  const concept = english.toLowerCase().trim();
+  if (!concept) return null;
+
+  const { data: exact } = await ctx.supabase
+    .from("v2_images")
+    .select("url")
+    .eq("concept", concept)
+    .maybeSingle();
+  if (exact) return exact.url;
+
+  const safeConcept = concept.replace(/[,()%_]/g, " ").trim();
+  if (!safeConcept) return null;
+  const { data: fuzzy } = await ctx.supabase
+    .from("v2_images")
+    .select("url")
+    .ilike("concept", `%${safeConcept}%`)
+    .limit(1)
+    .maybeSingle();
+  return fuzzy?.url ?? null;
+}
+
 async function getWordDetail(ctx: ToolContext, wordId: string): Promise<{ result: unknown; widget?: Widget }> {
   const { data, error } = await ctx.supabase.from("v2_words").select("*").eq("id", wordId).maybeSingle();
   if (error) throw error;
   if (!data) return { result: null };
+  const imageUrl = await findImageForWord(ctx, data.english);
   return {
     result: data,
     widget: {
       type: "word_card",
       word: { id: data.id, arabizi: data.arabizi, script: data.script, english: data.english, memory_hook: data.memory_hook },
+      image_url: imageUrl,
     },
   };
 }

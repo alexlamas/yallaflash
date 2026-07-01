@@ -85,7 +85,11 @@ export interface ReviewCue {
 export type Widget =
   | { type: "onboarding_choice" }
   | { type: "pack_list"; packs: V2Pack[] }
-  | { type: "word_card"; word: Pick<V2Word, "id" | "arabizi" | "script" | "english" | "memory_hook"> }
+  | {
+      type: "word_card";
+      word: Pick<V2Word, "id" | "arabizi" | "script" | "english" | "memory_hook">;
+      image_url?: string | null;
+    }
   | {
       type: "quiz_mc";
       word_id: string;
