@@ -1,6 +1,6 @@
 # Yalla Flash V2 — chat-native rebuild
 
-Status: draft spec, round 1. Not implementation-ready — captures direction agreed on so far, expect this to change as we build.
+Status: first vertical slice built and pushed to `claude/lebanese-arabic-learning-hlzui0` (schema, chat backend, widget UI at `/chat`). Not yet run against a live Supabase/Anthropic project in this session — see "What's actually built" below for what's verified vs. still untested.
 
 ## Why
 
@@ -63,8 +63,20 @@ Backend tools the model can call: `get_due_words`, `record_answer`, `add_words`,
 - **Adding words** — paste vocab in chat → AI parses → `add_words_preview` widget with flagged ambiguities → confirm → inserted as `status: new`.
 - **Testing** — "test me" → `get_due_words` → one `word_card` + response-widget at a time, wait for answer before advancing → deterministic grade → `record_answer` updates status/interval → AI gives verdict + script + root/origin, mirroring the Notion setup's testing rules.
 
-## Open before scaffolding starts
+## What's actually built
 
-- **Where does this live?** GitHub access this session is scoped to `alexlamas/yallaflash` only. Default plan: build V2 inside this repo (new structure, old app removed/archived once V2 replaces it) rather than a separate repo, since a separate repo would need to be created by the user and isn't something this session can push to. Flagging for explicit confirmation before any destructive restructuring happens.
-- Exact tool-calling schema for the Claude backend (tool names/params above are directional, not final).
-- Whether `conversations`/`messages` needs multi-conversation support or a single ongoing thread is enough for personal use.
+Lives inside this repo, additive (nothing existing was touched except one nav link) so the current app keeps working while this is developed:
+
+- **Schema**: `supabase/migrations/20260701_v2_chat_native_schema.sql` (tables + RLS) and `20260701_v2_seed_packs.sql` (Lebanese Arabic language row + one 8-word starter pack). Not yet run against a real database in this session -- run manually in the Supabase SQL editor, same as the other files in that folder.
+- **Backend**: `app/v2/lib/{types,tutorPrompt,grading,tools}.ts` and `app/api/v2/{chat,words/confirm,review/answer,packs,packs/start}/route.ts`. Tool-calling loop is real (Anthropic SDK tool use), but the actual tier logic in `start_review` is a first pass: new/no-progress → MC, learning → open recall, learned → cold production. Distractors for multiple choice are pulled from 3 random other words in the same language, which will look thin until there are more words in the DB.
+- **UI**: `app/v2/components/*` (one component per widget type) + `app/(main)/chat/page.tsx`, linked from `TopNav`.
+
+Verified in this session: TypeScript compiles clean, `npm run lint` passes clean, and this sandbox has no `.env.local` / real Supabase or Anthropic credentials, so the actual chat flow, tool calls, and widget round-trips have **not** been exercised against live data. Next real step is running the migrations against your Supabase project and trying it with real credentials.
+
+## Known gaps / next round
+
+- `add_words_preview`'s flagged assumptions are currently read-only (shown as text) -- there's no UI yet to actually pick option (b) over (a) before confirming, so confirm always locks in the model's first choice.
+- "Browse packs" and pack-start don't go through the AI at all except for the post-start acknowledgment; browsing itself is a plain fetch + local widget append.
+- No session-end widget is wired up yet (`session_summary` widget exists but nothing triggers it).
+- No multi-conversation UI -- one ongoing thread per user, stored in `localStorage` client-side to resume it.
+- `search_words` tool exists but nothing in the tutor prompt tells the model when to reach for it beyond general judgment.
