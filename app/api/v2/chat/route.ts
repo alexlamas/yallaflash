@@ -52,7 +52,15 @@ export async function POST(req: Request) {
     const languageId = await getDefaultLanguageId(supabase);
     const ctx = { supabase, userId: user.id, languageId };
 
-    const messages: Anthropic.MessageParam[] = (historyRows ?? []).map((row) => ({
+    // The Anthropic API requires the message list to start with a "user"
+    // turn. The deterministic bootstrap greeting is stored as the first
+    // "assistant" row in the conversation, so drop everything before the
+    // first real user message rather than replaying it to the model.
+    const rows = historyRows ?? [];
+    const firstUserIndex = rows.findIndex((row) => row.role === "user");
+    const relevantRows = firstUserIndex === -1 ? [] : rows.slice(firstUserIndex);
+
+    const messages: Anthropic.MessageParam[] = relevantRows.map((row) => ({
       role: row.role as "user" | "assistant",
       content: row.content,
     }));
