@@ -53,17 +53,25 @@ export async function POST(req: Request) {
     const ctx = { supabase, userId: user.id, languageId };
 
     // The Anthropic API requires the message list to start with a "user"
-    // turn. The deterministic bootstrap greeting is stored as the first
-    // "assistant" row in the conversation, so drop everything before the
-    // first real user message rather than replaying it to the model.
+    // turn and strictly alternate roles. The deterministic bootstrap
+    // greeting is stored as the first "assistant" row, so drop everything
+    // before the first real user message. A prior turn that failed after
+    // its user message was persisted (e.g. this exact bug) can also leave
+    // two consecutive "user" rows -- merge consecutive same-role rows
+    // rather than assume the history is already well-formed.
     const rows = historyRows ?? [];
     const firstUserIndex = rows.findIndex((row) => row.role === "user");
     const relevantRows = firstUserIndex === -1 ? [] : rows.slice(firstUserIndex);
 
-    const messages: Anthropic.MessageParam[] = relevantRows.map((row) => ({
-      role: row.role as "user" | "assistant",
-      content: row.content,
-    }));
+    const messages: Anthropic.MessageParam[] = [];
+    for (const row of relevantRows) {
+      const last = messages[messages.length - 1];
+      if (last && last.role === row.role && typeof last.content === "string") {
+        last.content = `${last.content}\n${row.content}`;
+      } else {
+        messages.push({ role: row.role as "user" | "assistant", content: row.content });
+      }
+    }
 
     const widgets: Widget[] = [];
     let finalText = "";
