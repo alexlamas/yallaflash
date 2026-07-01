@@ -48,7 +48,7 @@ export function QuizMC({
             {widget.cue.script}
           </div>
         )}
-        <div className={active ? "text-2xl font-semibold" : "text-lg font-medium"}>
+        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
           {widget.cue.arabizi}
         </div>
         <div className="text-sm text-subtle">{widget.prompt}</div>
@@ -58,8 +58,8 @@ export function QuizMC({
               key={option}
               variant="outline"
               className={cn(
-                "justify-start h-auto py-2.5 text-left whitespace-normal",
-                selected === option && "border-primary"
+                "justify-start h-auto py-2.5 text-left whitespace-normal hover:border-green-400 hover:bg-green-50/50",
+                selected === option && "border-green-500 bg-green-50"
               )}
               disabled={selected !== null}
               onClick={() => handleSelect(option)}

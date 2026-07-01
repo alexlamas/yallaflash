@@ -34,7 +34,7 @@ export function WordCard({
             {word.script}
           </div>
         )}
-        <div className={active ? "text-2xl font-semibold" : "text-lg font-medium"}>{word.arabizi}</div>
+        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>{word.arabizi}</div>
         <div className="text-sm text-muted-foreground">{word.english}</div>
         {word.memory_hook && (
           <div className="text-xs text-subtle pt-1 border-t mt-2">{word.memory_hook}</div>

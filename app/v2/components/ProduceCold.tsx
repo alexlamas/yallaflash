@@ -31,7 +31,7 @@ export function ProduceCold({
   const card = (
     <Card className={cn(active ? "rounded-3xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
-        <div className={active ? "text-2xl font-semibold" : "text-lg font-medium"}>
+        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
           {widget.cue.english}
         </div>
         {widget.cue.memory_hook && <div className="text-xs text-subtle">{widget.cue.memory_hook}</div>}
@@ -45,7 +45,11 @@ export function ProduceCold({
             placeholder="Arabizi, from memory..."
             autoFocus={active}
           />
-          <Button disabled={submitted || !value.trim()} onClick={handleSubmit}>
+          <Button
+            disabled={submitted || !value.trim()}
+            onClick={handleSubmit}
+            className="bg-green-600 hover:bg-green-700"
+          >
             Submit
           </Button>
         </div>

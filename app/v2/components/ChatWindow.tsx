@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+import { ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -16,13 +17,14 @@ const STORAGE_KEY = "yallaflash_v2_conversation_id";
 // widget-driven mutation (see tutorPrompt.ts) -- shown to the tutor, not the user.
 const HIDDEN_PREFIXES = ["[REVIEW RESULT]", "[WORDS CONFIRMED]", "[PACK STARTED]"];
 
-// Widget types that wait on a user interaction.
+// Widget types that block the action chips while waiting on the user.
+// onboarding_choice is deliberately NOT here: it's a suggestion, not a gate,
+// so a conversation can never wedge on it (chips stay available alongside).
 const INTERACTIVE_TYPES = new Set<Widget["type"]>([
   "quiz_mc",
   "recall_input",
   "produce_cold",
   "add_words_preview",
-  "onboarding_choice",
   "pack_list",
 ]);
 
@@ -415,11 +417,11 @@ export function ChatWindow() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] max-w-5xl mx-auto">
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
         {earlierMessages.length > 0 && (
           <button
             onClick={() => setShowHistory((s) => !s)}
-            className="w-full text-center text-xs text-subtle py-2 border-b border-dashed hover:text-heading transition-colors"
+            className="w-full text-center text-xs text-gray-400 py-2.5 border-b border-dashed border-gray-200 hover:text-heading transition-colors"
           >
             {showHistory ? "Hide earlier messages" : `↑ ${earlierMessages.length} earlier messages`}
           </button>
@@ -440,60 +442,72 @@ export function ChatWindow() {
               </div>
             )}
             {activeMessages.map((message, i) => renderMessage(message, activeStart + i, true))}
-            {loading && <div className="text-sm text-subtle">Thinking...</div>}
+            {loading && (
+              <div className="text-sm text-subtle animate-pulse" aria-live="polite">
+                Thinking...
+              </div>
+            )}
           </div>
         </div>
 
-        {error && (
-          <div className="px-4 py-2 text-sm bg-red-50 text-red-700 border-t flex items-center justify-between gap-3">
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-700/70 hover:text-red-700">
-              Dismiss
+        <div className="px-4 pb-5 pt-1 space-y-2.5">
+          {error && (
+            <div className="max-w-2xl mx-auto rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-2 flex items-center justify-between gap-3">
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="text-red-700/70 hover:text-red-700">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {chips.length > 0 && (
+            <div className="flex gap-2 flex-wrap justify-center">
+              {chips.map((chip) => (
+                <button
+                  key={chip.label}
+                  onClick={chip.onClick}
+                  className={cn(
+                    "rounded-full px-4 py-2 text-sm font-medium border shadow-sm transition-colors",
+                    chip.primary
+                      ? "bg-green-600 border-green-600 text-white hover:bg-green-700"
+                      : "bg-white border-gray-200 text-heading hover:bg-gray-50"
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-3xl border border-gray-200 bg-white shadow-sm px-4 py-2 transition-shadow focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
+            <Textarea
+              ref={textareaRef}
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder={reviewPending ? "Ask about this word..." : placeholder}
+              disabled={loading}
+              className="border-0 shadow-none focus-visible:ring-0 resize-none min-h-[30px] max-h-40 px-0 py-1.5 text-[15px] bg-transparent"
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={loading || !input.trim()}
+              aria-label="Send"
+              className="mb-0.5 h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
+            >
+              <ArrowUp className="h-4 w-4" />
             </button>
           </div>
-        )}
-
-        {chips.length > 0 && (
-          <div className="px-4 pt-3 flex gap-2 flex-wrap border-t bg-white">
-            {chips.map((chip) => (
-              <button
-                key={chip.label}
-                onClick={chip.onClick}
-                className={cn(
-                  "rounded-full border px-4 py-1.5 text-sm font-medium transition-colors",
-                  chip.primary
-                    ? "bg-primary text-primary-foreground border-primary hover:opacity-90"
-                    : "bg-white border-gray-300 hover:bg-gray-50"
-                )}
-              >
-                {chip.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className={cn("p-3 flex gap-2 items-end", chips.length === 0 && "border-t")}>
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-            placeholder={reviewPending ? "Ask about this word..." : placeholder}
-            disabled={loading}
-            className="min-h-[40px] max-h-40"
-          />
-          <Button onClick={handleSubmit} disabled={loading || !input.trim()}>
-            Send
-          </Button>
         </div>
       </div>
 
-      <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col">
+      <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-stone-50/60">
         <ProgressPanel refreshKey={progressKey} />
       </aside>
     </div>

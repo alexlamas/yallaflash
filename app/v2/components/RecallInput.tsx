@@ -36,7 +36,7 @@ export function RecallInput({
             {widget.cue.script}
           </div>
         )}
-        <div className={active ? "text-2xl font-semibold" : "text-lg font-medium"}>
+        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
           {widget.cue.arabizi}
         </div>
         <div className="text-sm text-subtle">{widget.prompt}</div>
@@ -49,7 +49,11 @@ export function RecallInput({
             placeholder="Type the English meaning..."
             autoFocus={active}
           />
-          <Button disabled={submitted || !value.trim()} onClick={handleSubmit}>
+          <Button
+            disabled={submitted || !value.trim()}
+            onClick={handleSubmit}
+            className="bg-green-600 hover:bg-green-700"
+          >
             Submit
           </Button>
         </div>
