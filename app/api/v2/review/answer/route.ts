@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
-import { handleApiError, validateRequest } from "@/app/api/utils";
+import { validateRequest } from "@/app/api/utils";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import { gradeColdRecall, gradeRecognition } from "@/app/v2/lib/grading";
 import type { ReviewTier } from "@/app/v2/lib/types";
+
+// Near-miss grading can make a Claude call on top of DB round trips.
+export const maxDuration = 30;
 
 type AnswerRequest = {
   wordId: string;
@@ -76,6 +79,8 @@ export async function POST(req: Request) {
       next_review_date: nextReviewDate.toISOString(),
     });
   } catch (error) {
-    return handleApiError(error, "Failed to grade answer");
+    console.error("[v2/review/answer]", error);
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: `Grading failed: ${message}` }, { status: 500 });
   }
 }

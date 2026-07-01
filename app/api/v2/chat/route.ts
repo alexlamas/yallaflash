@@ -3,10 +3,13 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { incrementUsage } from "@/app/services/aiUsageService";
-import { handleApiError } from "@/app/api/utils";
 import { TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
 import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/lib/tools";
 import type { Widget } from "@/app/v2/lib/types";
+
+// The tool loop makes up to MAX_TOOL_ITERATIONS sequential Claude calls;
+// Vercel's default 10s function limit is not enough for that.
+export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = "claude-sonnet-4-20250514";
@@ -117,7 +120,12 @@ export async function POST(req: Request) {
     const assistantMessage = await insertMessage(supabase, conversationId, "assistant", finalText, widgets);
     return NextResponse.json({ conversationId, message: assistantMessage });
   } catch (error) {
-    return handleApiError(error, "Failed to send message");
+    // V2 is in active development for personal use: log the real error to
+    // Vercel runtime logs AND return it to the client so the error banner
+    // is actually diagnosable, instead of a generic "failed" message.
+    console.error("[v2/chat]", error);
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: `Chat failed: ${message}` }, { status: 500 });
   }
 }
 
