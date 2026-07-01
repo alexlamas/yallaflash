@@ -5,7 +5,7 @@ import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
-import type { ReviewTier, V2Message, Widget, WordProposal } from "@/app/v2/lib/types";
+import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
@@ -19,12 +19,28 @@ function nextLocalId() {
   return `local-${localIdCounter}`;
 }
 
+// Fetches JSON and throws with the API's own error message on a non-2xx
+// response, instead of letting callers hand a broken body to setState.
+async function fetchJSON<T>(url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: body === undefined ? "GET" : "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error((data && data.error) || `Request to ${url} failed (${res.status})`);
+  }
+  return data as T;
+}
+
 export function ChatWindow() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<V2Message[]>([]);
   const [input, setInput] = useState("");
   const [placeholder, setPlaceholder] = useState("Ask your tutor anything...");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -62,16 +78,17 @@ export function ChatWindow() {
 
   async function bootstrap() {
     setLoading(true);
-    const res = await fetch("/api/v2/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    const data = await res.json();
-    window.localStorage.setItem(STORAGE_KEY, data.conversationId);
-    setConversationId(data.conversationId);
-    setMessages([data.message]);
-    setLoading(false);
+    setError(null);
+    try {
+      const data = await fetchJSON<{ conversationId: string; message: V2Message }>("/api/v2/chat", {});
+      window.localStorage.setItem(STORAGE_KEY, data.conversationId);
+      setConversationId(data.conversationId);
+      setMessages([data.message]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't start the chat.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function appendLocalMessage(content: string, widgets: Widget[] = []) {
@@ -91,6 +108,7 @@ export function ChatWindow() {
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     setLoading(true);
+    setError(null);
     setMessages((prev) => [
       ...prev,
       {
@@ -103,15 +121,18 @@ export function ChatWindow() {
       },
     ]);
 
-    const res = await fetch("/api/v2/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId, message: text }),
-    });
-    const data = await res.json();
-    setConversationId(data.conversationId);
-    setMessages((prev) => [...prev, data.message]);
-    setLoading(false);
+    try {
+      const data = await fetchJSON<{ conversationId: string; message: V2Message }>("/api/v2/chat", {
+        conversationId,
+        message: text,
+      });
+      setConversationId(data.conversationId);
+      setMessages((prev) => [...prev, data.message]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That message didn't send.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleSubmit() {
@@ -122,29 +143,33 @@ export function ChatWindow() {
 
   const actions: WidgetActions = {
     onAnswer: async (wordId: string, tier: ReviewTier, submitted: string) => {
-      setLoading(true);
-      const res = await fetch("/api/v2/review/answer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ wordId, tier, submitted }),
-      });
-      const result = await res.json();
-      await sendMessage(
-        `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
-      );
+      setError(null);
+      try {
+        const result = await fetchJSON<{
+          correct: boolean;
+          arabizi: string;
+          script: string | null;
+          next_review_date: string;
+        }>("/api/v2/review/answer", { wordId, tier, submitted });
+        await sendMessage(
+          `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't grade that answer.");
+      }
     },
     onConfirmWords: async (proposals: WordProposal[]) => {
-      setLoading(true);
-      const res = await fetch("/api/v2/words/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposals }),
-      });
-      const result = await res.json();
-      const summary = (result.words ?? [])
-        .map((w: { arabizi: string; english: string }) => `${w.arabizi} = ${w.english}`)
-        .join(", ");
-      await sendMessage(`[WORDS CONFIRMED] ${summary}`);
+      setError(null);
+      try {
+        const result = await fetchJSON<{ words: { arabizi: string; english: string }[] }>(
+          "/api/v2/words/confirm",
+          { proposals }
+        );
+        const summary = (result.words ?? []).map((w) => `${w.arabizi} = ${w.english}`).join(", ");
+        await sendMessage(`[WORDS CONFIRMED] ${summary}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't save those words.");
+      }
     },
     onChooseOnboarding: async (choice: "add_words" | "browse_packs") => {
       if (choice === "add_words") {
@@ -152,27 +177,41 @@ export function ChatWindow() {
         textareaRef.current?.focus();
         return;
       }
+      setError(null);
       setLoading(true);
-      const res = await fetch("/api/v2/packs");
-      const data = await res.json();
-      setLoading(false);
-      appendLocalMessage("Here's a pack to start with:", [{ type: "pack_list", packs: data.packs }]);
+      try {
+        const data = await fetchJSON<{ packs: V2Pack[] }>("/api/v2/packs");
+        appendLocalMessage("Here's a pack to start with:", [{ type: "pack_list", packs: data.packs }]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't load packs.");
+      } finally {
+        setLoading(false);
+      }
     },
     onStartPack: async (packId: string) => {
-      setLoading(true);
-      const res = await fetch("/api/v2/packs/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId }),
-      });
-      const result = await res.json();
-      await sendMessage(`[PACK STARTED] added ${result.count} words from the pack, ready whenever you want to test.`);
+      setError(null);
+      try {
+        const result = await fetchJSON<{ count: number }>("/api/v2/packs/start", { packId });
+        await sendMessage(`[PACK STARTED] added ${result.count} words from the pack, ready whenever you want to test.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't start that pack.");
+      }
     },
   };
 
   const visibleMessages = messages.filter(
     (m) => !(m.role === "user" && HIDDEN_PREFIXES.some((prefix) => m.content.startsWith(prefix)))
   );
+
+  if (error && messages.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] max-w-sm mx-auto text-center gap-3 px-4">
+        <div className="text-sm font-medium text-heading">Couldn&apos;t start the chat</div>
+        <div className="text-sm text-subtle">{error}</div>
+        <Button onClick={bootstrap}>Try again</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] max-w-2xl mx-auto">
@@ -200,6 +239,15 @@ export function ChatWindow() {
         {loading && <div className="text-sm text-subtle">Thinking...</div>}
         <div ref={bottomRef} />
       </div>
+
+      {error && (
+        <div className="px-4 py-2 text-sm bg-red-50 text-red-700 border-t flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-700/70 hover:text-red-700">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="border-t p-3 flex gap-2 items-end">
         <Textarea
