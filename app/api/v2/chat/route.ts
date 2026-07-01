@@ -12,7 +12,7 @@ import type { Widget } from "@/app/v2/lib/types";
 export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-opus-4-8";
 const MAX_TOOL_ITERATIONS = 5;
 
 const ONBOARDING_GREETING =

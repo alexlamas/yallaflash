@@ -50,10 +50,9 @@ describe("ClaudeService", () => {
 
       expect(result).toBe("Hello, world!");
       expect(mockCreate).toHaveBeenCalledWith({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-5",
         max_tokens: 1000,
         messages: [{ role: "user", content: "Say hello" }],
-        temperature: 0.7,
       });
     });
 
@@ -224,7 +223,7 @@ describe("ClaudeService", () => {
       expect(prompt).toContain('Arabic: "أنا بحب الميّ"');
     });
 
-    it("should use temperature 1.0 for sentence generation", async () => {
+    it("should not send sampling params (rejected by claude-sonnet-5)", async () => {
       mockCreate.mockResolvedValue({
         content: [{ type: "text", text: validJsonResponse }],
       });
@@ -232,8 +231,8 @@ describe("ClaudeService", () => {
       await ClaudeService.generateSentence("ميّ");
 
       expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          temperature: 1.0,
+        expect.not.objectContaining({
+          temperature: expect.anything(),
         })
       );
     });

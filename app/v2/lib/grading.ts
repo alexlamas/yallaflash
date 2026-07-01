@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = "claude-sonnet-4-20250514";
+// Grading is a one-word yes/no call -- the fastest, cheapest model is right.
+const MODEL = "claude-haiku-4-5";
 
 const NEAR_MISS_MAX_DISTANCE_RATIO = 0.25;
 
