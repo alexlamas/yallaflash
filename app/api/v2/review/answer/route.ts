@@ -12,7 +12,9 @@ export const maxDuration = 30;
 type AnswerRequest = {
   wordId: string;
   tier: ReviewTier;
-  submitted: string;
+  submitted?: string;
+  // "Show answer" pressed: grade as a miss without an attempt.
+  concede?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -24,10 +26,14 @@ export async function POST(req: Request) {
     }
 
     const data = await req.json();
-    if (!validateRequest<AnswerRequest>(data, ["wordId", "tier", "submitted"])) {
-      return NextResponse.json({ error: "wordId, tier, and submitted are required" }, { status: 400 });
+    if (!validateRequest<AnswerRequest>(data, ["wordId", "tier"])) {
+      return NextResponse.json({ error: "wordId and tier are required" }, { status: 400 });
     }
-    const { wordId, tier, submitted } = data;
+    const { wordId, tier, concede } = data;
+    const submitted = typeof data.submitted === "string" ? data.submitted : "";
+    if (!concede && !submitted.trim()) {
+      return NextResponse.json({ error: "submitted is required unless conceding" }, { status: 400 });
+    }
 
     const { data: word, error: wordError } = await supabase
       .from("v2_words")
@@ -36,8 +42,11 @@ export async function POST(req: Request) {
       .single();
     if (wordError) throw wordError;
 
-    const correct =
-      tier === "hard" ? await gradeColdRecall(submitted, word.arabizi) : gradeRecognition(submitted, word.english);
+    const correct = concede
+      ? false
+      : tier === "hard"
+      ? await gradeColdRecall(submitted, word.arabizi)
+      : gradeRecognition(submitted, word.english);
 
     const rating = !correct ? 0 : tier === "hard" ? 3 : 2;
 

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { DeckFrame } from "./DeckFrame";
 import type { Widget } from "@/app/v2/lib/types";
 
 type ProduceColdWidget = Extract<Widget, { type: "produce_cold" }>;
@@ -11,9 +13,11 @@ type ProduceColdWidget = Extract<Widget, { type: "produce_cold" }>;
 export function ProduceCold({
   widget,
   onAnswer,
+  active = false,
 }: {
   widget: ProduceColdWidget;
   onAnswer: (wordId: string, tier: ProduceColdWidget["tier"], submitted: string) => void;
+  active?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -24,10 +28,12 @@ export function ProduceCold({
     onAnswer(widget.word_id, widget.tier, value.trim());
   };
 
-  return (
-    <Card className="max-w-sm">
-      <CardContent className="p-4 space-y-3">
-        <div className="text-lg font-medium">{widget.cue.english}</div>
+  const card = (
+    <Card className={cn(active ? "rounded-3xl shadow-lg" : "max-w-sm")}>
+      <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
+        <div className={active ? "text-2xl font-semibold" : "text-lg font-medium"}>
+          {widget.cue.english}
+        </div>
         {widget.cue.memory_hook && <div className="text-xs text-subtle">{widget.cue.memory_hook}</div>}
         <div className="text-sm text-subtle">{widget.prompt}</div>
         <div className="flex gap-2">
@@ -37,7 +43,7 @@ export function ProduceCold({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder="Arabizi, from memory..."
-            autoFocus
+            autoFocus={active}
           />
           <Button disabled={submitted || !value.trim()} onClick={handleSubmit}>
             Submit
@@ -46,4 +52,6 @@ export function ProduceCold({
       </CardContent>
     </Card>
   );
+
+  return active ? <DeckFrame>{card}</DeckFrame> : card;
 }

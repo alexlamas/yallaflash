@@ -16,20 +16,28 @@ export interface WidgetActions {
   onStartPack: (packId: string) => void;
 }
 
-export function WidgetRenderer({ widget, actions }: { widget: Widget; actions: WidgetActions }) {
+export function WidgetRenderer({
+  widget,
+  actions,
+  active = false,
+}: {
+  widget: Widget;
+  actions: WidgetActions;
+  active?: boolean;
+}) {
   switch (widget.type) {
     case "onboarding_choice":
       return <OnboardingChoice onChoose={actions.onChooseOnboarding} />;
     case "pack_list":
       return <PackList widget={widget} onStartPack={actions.onStartPack} />;
     case "word_card":
-      return <WordCard word={widget.word} imageUrl={widget.image_url} />;
+      return <WordCard word={widget.word} imageUrl={widget.image_url} active={active} />;
     case "quiz_mc":
-      return <QuizMC widget={widget} onAnswer={actions.onAnswer} />;
+      return <QuizMC widget={widget} onAnswer={actions.onAnswer} active={active} />;
     case "recall_input":
-      return <RecallInput widget={widget} onAnswer={actions.onAnswer} />;
+      return <RecallInput widget={widget} onAnswer={actions.onAnswer} active={active} />;
     case "produce_cold":
-      return <ProduceCold widget={widget} onAnswer={actions.onAnswer} />;
+      return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} />;
     case "add_words_preview":
       return <AddWordsPreview widget={widget} onConfirm={actions.onConfirmWords} />;
     case "review_verdict":
