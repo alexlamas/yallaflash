@@ -155,8 +155,22 @@ export function ChatWindow() {
       await bootstrap();
       return;
     }
+    const loaded = data as V2Message[];
+    // Which widgets were answered lives only in client state, so on reload
+    // presume every interactive widget with any message after it (including
+    // hidden ground-truth messages) was already handled -- otherwise an old
+    // review card would come back to life and could double-grade.
+    const seeded = new Set<string>();
+    loaded.forEach((message, index) => {
+      if (message.role !== "assistant" || !message.widgets) return;
+      if (index === loaded.length - 1) return;
+      message.widgets.forEach((widget, j) => {
+        if (INTERACTIVE_TYPES.has(widget.type)) seeded.add(`${message.id}:${j}`);
+      });
+    });
+    setAnsweredKeys(seeded);
     setConversationId(id);
-    setMessages(data as V2Message[]);
+    setMessages(loaded);
     setLoading(false);
   }
 
@@ -349,8 +363,9 @@ export function ChatWindow() {
       }
       return [];
     }
+    const hasStarted = visibleMessages.some((m) => m.role === "user");
     return [
-      { label: "Next word", primary: true, onClick: () => sendMessage("next") },
+      { label: hasStarted ? "Next word" : "Start review", primary: true, onClick: () => sendMessage("next") },
       { label: "Add words", onClick: () => sendMessage("I want to add some new words") },
     ];
   })();
@@ -410,14 +425,23 @@ export function ChatWindow() {
           </button>
         )}
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-          {showHistory && (
-            <div className="space-y-4 pb-6 mb-6 border-b border-dashed opacity-80">
-              {earlierMessages.map((message, i) => renderMessage(message, i, false))}
-            </div>
-          )}
-          {activeMessages.map((message, i) => renderMessage(message, activeStart + i, true))}
-          {loading && <div className="text-sm text-subtle">Thinking...</div>}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+          <div
+            className={cn(
+              "max-w-2xl mx-auto w-full flex flex-col gap-4",
+              // Center the lone active exchange vertically for a stage feel;
+              // with history expanded it behaves like a normal transcript.
+              !showHistory && "min-h-full justify-center"
+            )}
+          >
+            {showHistory && (
+              <div className="space-y-4 pb-6 mb-2 border-b border-dashed opacity-80">
+                {earlierMessages.map((message, i) => renderMessage(message, i, false))}
+              </div>
+            )}
+            {activeMessages.map((message, i) => renderMessage(message, activeStart + i, true))}
+            {loading && <div className="text-sm text-subtle">Thinking...</div>}
+          </div>
         </div>
 
         {error && (

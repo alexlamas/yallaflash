@@ -34,9 +34,31 @@ export async function POST(req: Request) {
     const body: ChatRequest = await req.json();
     const conversationId = body.conversationId ?? (await createConversation(supabase, user.id));
 
-    // Bootstrap call for a brand-new conversation: skip the model entirely
-    // and deterministically show the onboarding choice.
+    // Bootstrap call for a brand-new conversation: skip the model entirely.
+    // Returning users (any words in progress) get a session-ready greeting so
+    // the Start review / Add words chips are immediately available; only
+    // genuinely new users see the onboarding choice.
     if (!body.message) {
+      const { count: wordCount } = await supabase
+        .from("v2_word_progress")
+        .select("word_id", { count: "exact", head: true })
+        .eq("user_id", user.id);
+
+      if ((wordCount ?? 0) > 0) {
+        const { count: dueCount } = await supabase
+          .from("v2_word_progress")
+          .select("word_id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .lte("next_review_date", new Date().toISOString());
+
+        const greeting =
+          (dueCount ?? 0) > 0
+            ? `Ahla w sahla! You have ${dueCount} word${dueCount === 1 ? "" : "s"} due -- yalla?`
+            : "Ahla w sahla! Nothing due right now. Add new words, or review ahead anyway?";
+        const assistantMessage = await insertMessage(supabase, conversationId, "assistant", greeting, []);
+        return NextResponse.json({ conversationId, message: assistantMessage });
+      }
+
       const assistantMessage = await insertMessage(supabase, conversationId, "assistant", ONBOARDING_GREETING, [
         { type: "onboarding_choice" },
       ]);
