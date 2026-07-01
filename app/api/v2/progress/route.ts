@@ -13,7 +13,9 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("v2_word_progress")
-      .select("status, next_review_date, updated_at, v2_words!inner(id, arabizi, english)")
+      .select(
+        "status, interval, ease_factor, review_count, next_review_date, updated_at, v2_words!inner(id, arabizi, english)"
+      )
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false })
       .limit(200);
@@ -32,7 +34,11 @@ export async function GET() {
         arabizi: word.arabizi,
         english: word.english,
         status: row.status,
+        interval: row.interval,
+        ease_factor: row.ease_factor,
+        review_count: row.review_count,
         next_review_date: row.next_review_date,
+        updated_at: row.updated_at,
       };
     });
 
