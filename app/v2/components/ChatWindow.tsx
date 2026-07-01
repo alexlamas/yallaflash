@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
-import { ArrowUp } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowLeft, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
 import { MarkdownContent } from "./MarkdownContent";
 import { ProgressPanel } from "./ProgressPanel";
+import { TutorStrip } from "./TutorStrip";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
 // Synthetic ground-truth messages fed back into the model after a
 // widget-driven mutation (see tutorPrompt.ts) -- shown to the tutor, not the user.
-const HIDDEN_PREFIXES = ["[REVIEW RESULT]", "[WORDS CONFIRMED]", "[PACK STARTED]"];
+const HIDDEN_PREFIXES = ["[REVIEW RESULT]", "[WORDS CONFIRMED]", "[PACK STARTED]", "[SERVED]"];
 
 // Widget types that block the action chips while waiting on the user.
 // onboarding_choice is deliberately NOT here: it's a suggestion, not a gate,
@@ -50,7 +53,10 @@ async function fetchJSON<T>(url: string, body?: unknown): Promise<T> {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.error) || `Request to ${url} failed (${res.status})`);
+    const raw = data && (data as { error?: unknown }).error;
+    const message =
+      typeof raw === "string" ? raw : raw ? JSON.stringify(raw) : `Request to ${url} failed (${res.status})`;
+    throw new Error(message);
   }
   return data as T;
 }
@@ -324,6 +330,28 @@ export function ChatWindow() {
     };
   }
 
+  // Serves the next due card without a model round trip -- the chips should
+  // feel instant. Falls back to the tutor when the conversation isn't ready.
+  async function serveNext(excludeWordId?: string) {
+    if (!conversationId) {
+      sendMessage("next");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchJSON<{ message: V2Message }>("/api/v2/review/next", {
+        conversationId,
+        excludeWordId,
+      });
+      setMessages((prev) => [...prev, data.message]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't serve the next word.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function concedePending() {
     if (!pending || !isReviewWidget(pending.widget)) return;
     const widget = pending.widget;
@@ -351,13 +379,14 @@ export function ChatWindow() {
     if (loading || messages.length === 0) return [];
     if (pending) {
       if (reviewPending) {
+        const reviewWidget = pending.widget as ReviewWidget;
         return [
           { label: "Show answer", onClick: concedePending },
           {
             label: "Skip",
             onClick: () => {
               recordAnswered(pending.key);
-              sendMessage("skip this one, come back to it later");
+              serveNext(reviewWidget.word_id);
             },
           },
           { label: "Hint", onClick: () => sendMessage("give me a hint") },
@@ -367,14 +396,14 @@ export function ChatWindow() {
     }
     const hasStarted = visibleMessages.some((m) => m.role === "user");
     return [
-      { label: hasStarted ? "Next word" : "Start review", primary: true, onClick: () => sendMessage("next") },
+      { label: hasStarted ? "Next word" : "Start review", primary: true, onClick: () => serveNext() },
       { label: "Add words", onClick: () => sendMessage("I want to add some new words") },
     ];
   })();
 
   if (error && messages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-4rem)] max-w-sm mx-auto text-center gap-3 px-4">
+      <div className="flex flex-col items-center justify-center h-screen max-w-sm mx-auto text-center gap-3 px-4">
         <div className="text-sm font-medium text-heading">Couldn&apos;t start the chat</div>
         <div className="text-sm text-subtle">{error}</div>
         <Button onClick={bootstrap}>Try again</Button>
@@ -383,41 +412,78 @@ export function ChatWindow() {
   }
 
   function renderMessage(message: V2Message, messageIndex: number, inActiveView: boolean) {
-    const isLastAssistant =
-      message.role === "assistant" &&
-      messageIndex === visibleMessages.length - 1;
-    return (
-      <div key={message.id} className={message.role === "user" ? "flex justify-end" : "block"}>
-        <div className={message.role === "user" ? "max-w-sm" : "w-full space-y-3"}>
-          {message.content &&
-            (message.role === "user" ? (
-              <div className="rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm">
-                {message.content}
-              </div>
-            ) : (
-              <div className="max-w-lg">
-                <MarkdownContent text={message.content} />
-              </div>
-            ))}
-          {message.widgets?.map((widget, j) => {
-            const key = `${message.id}:${j}`;
-            const isActiveWidget =
-              inActiveView &&
-              (pending?.key === key || (isLastAssistant && widget.type === "word_card"));
-            return (
-              <div key={j} className={isActiveWidget ? "py-3" : undefined}>
-                <WidgetRenderer widget={widget} actions={actionsFor(key)} active={isActiveWidget} />
-              </div>
-            );
-          })}
+    if (message.role === "user") {
+      return (
+        <div key={message.id} className="flex justify-end">
+          <div className="max-w-sm rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm">
+            {message.content}
+          </div>
         </div>
+      );
+    }
+
+    const isLastAssistant = messageIndex === visibleMessages.length - 1;
+
+    // Wrapper element type stays constant (always motion.div) so an active
+    // card turning inactive re-renders instead of remounting -- a remount
+    // would reset the widget's internal answered state.
+    const widgetElements = (message.widgets ?? []).map((widget, j) => {
+      const key = `${message.id}:${j}`;
+      const isActiveWidget =
+        inActiveView && (pending?.key === key || (isLastAssistant && widget.type === "word_card"));
+      return (
+        <motion.div
+          key={j}
+          className={cn(isActiveWidget && "py-3")}
+          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+        >
+          <WidgetRenderer widget={widget} actions={actionsFor(key)} active={isActiveWidget} />
+        </motion.div>
+      );
+    });
+
+    if (inActiveView) {
+      // Stage layout: card first, the tutor's words as a compact strip below.
+      return (
+        <div key={message.id} className="w-full space-y-3">
+          {widgetElements}
+          {message.content && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: 0.08, ease: "easeOut" }}
+            >
+              <TutorStrip text={message.content} />
+            </motion.div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div key={message.id} className="w-full space-y-3">
+        {message.content && (
+          <div className="max-w-lg">
+            <MarkdownContent text={message.content} />
+          </div>
+        )}
+        {widgetElements}
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] max-w-5xl mx-auto">
-      <div className="flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
+    <div className="flex h-screen">
+      <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
+        <Link
+          href="/"
+          aria-label="Back to home"
+          className="absolute top-4 left-4 z-10 h-9 w-9 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm flex items-center justify-center text-gray-500 hover:text-heading hover:bg-white transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
         {earlierMessages.length > 0 && (
           <button
             onClick={() => setShowHistory((s) => !s)}

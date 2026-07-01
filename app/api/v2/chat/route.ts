@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { incrementUsage } from "@/app/services/aiUsageService";
+import { errorMessage } from "@/app/api/utils";
 import { TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
 import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/lib/tools";
 import type { Widget } from "@/app/v2/lib/types";
@@ -146,8 +147,7 @@ export async function POST(req: Request) {
     // Vercel runtime logs AND return it to the client so the error banner
     // is actually diagnosable, instead of a generic "failed" message.
     console.error("[v2/chat]", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: `Chat failed: ${message}` }, { status: 500 });
+    return NextResponse.json({ error: `Chat failed: ${errorMessage(error)}` }, { status: 500 });
   }
 }
 

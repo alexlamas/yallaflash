@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
-import { validateRequest } from "@/app/api/utils";
+import { errorMessage, validateRequest } from "@/app/api/utils";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import { gradeColdRecall, gradeRecognition } from "@/app/v2/lib/grading";
 import type { ReviewTier } from "@/app/v2/lib/types";
@@ -89,7 +89,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("[v2/review/answer]", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: `Grading failed: ${message}` }, { status: 500 });
+    return NextResponse.json({ error: `Grading failed: ${errorMessage(error)}` }, { status: 500 });
   }
 }

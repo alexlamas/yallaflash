@@ -220,6 +220,12 @@ async function getWordDetail(ctx: ToolContext, wordId: string): Promise<{ result
   };
 }
 
+export function tierForProgress(progress: { status: string; review_count: number } | null): ReviewTier {
+  if (!progress || progress.status === "new" || progress.review_count === 0) return "easy";
+  if (progress.status === "learning") return "medium";
+  return "hard";
+}
+
 async function startReview(ctx: ToolContext, wordId: string): Promise<{ result: unknown; widget?: Widget }> {
   const { data: progress, error: progressError } = await ctx.supabase
     .from("v2_word_progress")
@@ -236,18 +242,29 @@ async function startReview(ctx: ToolContext, wordId: string): Promise<{ result: 
     .single();
   if (wordError) throw wordError;
 
-  const tier: ReviewTier =
-    !progress || progress.status === "new" || progress.review_count === 0
-      ? "easy"
-      : progress.status === "learning"
-      ? "medium"
-      : "hard";
+  const tier = tierForProgress(progress);
 
   const widget = await buildReviewWidget(ctx, word, tier);
-  return { result: { tier }, widget };
+  // Tell the model exactly what the card displays and what must stay hidden,
+  // so its lead-in text can't leak the answer (e.g. framing a recognition
+  // card as "how do you say 'a lot'?" gives the meaning away).
+  const isProduction = tier === "hard";
+  return {
+    result: {
+      tier,
+      card_shows: isProduction
+        ? { english: word.english, memory_hook: word.memory_hook }
+        : { arabizi: word.arabizi, script: word.script },
+      card_asks_user_for: isProduction ? "the arabizi, typed from memory" : "the English meaning",
+      do_not_reveal_in_your_text: isProduction
+        ? `the arabizi "${word.arabizi}" or its script`
+        : `the English meaning "${word.english}"`,
+    },
+    widget,
+  };
 }
 
-async function buildReviewWidget(
+export async function buildReviewWidget(
   ctx: ToolContext,
   word: { id: string; language_id: string; arabizi: string; script: string | null; english: string; memory_hook: string | null },
   tier: ReviewTier

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
+import { errorMessage } from "@/app/api/utils";
 
 export async function GET() {
   try {
@@ -38,7 +39,6 @@ export async function GET() {
     return NextResponse.json({ counts, words });
   } catch (error) {
     console.error("[v2/progress]", error);
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: `Progress failed: ${message}` }, { status: 500 });
+    return NextResponse.json({ error: `Progress failed: ${errorMessage(error)}` }, { status: 500 });
   }
 }
