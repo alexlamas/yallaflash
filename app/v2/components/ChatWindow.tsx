@@ -5,6 +5,8 @@ import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
+import { MarkdownContent } from "./MarkdownContent";
+import { ProgressPanel } from "./ProgressPanel";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
@@ -41,8 +43,11 @@ export function ChatWindow() {
   const [placeholder, setPlaceholder] = useState("Ask your tutor anything...");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [progressKey, setProgressKey] = useState(0);
+  const lastMessageRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const refreshProgress = () => setProgressKey((key) => key + 1);
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -54,9 +59,14 @@ export function ChatWindow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Pin the newest turn to the top of the viewport (the filler div below the
+  // message list guarantees there's always room to scroll it there).
+  const visibleCount = messages.filter(
+    (m) => !(m.role === "user" && HIDDEN_PREFIXES.some((prefix) => m.content.startsWith(prefix)))
+  ).length;
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    lastMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [visibleCount]);
 
   async function loadHistory(id: string) {
     setLoading(true);
@@ -151,6 +161,7 @@ export function ChatWindow() {
           script: string | null;
           next_review_date: string;
         }>("/api/v2/review/answer", { wordId, tier, submitted });
+        refreshProgress();
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
         );
@@ -166,6 +177,7 @@ export function ChatWindow() {
           { proposals }
         );
         const summary = (result.words ?? []).map((w) => `${w.arabizi} = ${w.english}`).join(", ");
+        refreshProgress();
         await sendMessage(`[WORDS CONFIRMED] ${summary}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save those words.");
@@ -192,6 +204,7 @@ export function ChatWindow() {
       setError(null);
       try {
         const result = await fetchJSON<{ count: number }>("/api/v2/packs/start", { packId });
+        refreshProgress();
         await sendMessage(`[PACK STARTED] added ${result.count} words from the pack, ready whenever you want to test.`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't start that pack.");
@@ -214,22 +227,24 @@ export function ChatWindow() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-2xl mx-auto">
+    <div className="flex h-[calc(100vh-4rem)] max-w-5xl mx-auto">
+      <div className="flex flex-col flex-1 min-w-0">
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {visibleMessages.map((message) => (
-          <div key={message.id} className={message.role === "user" ? "flex justify-end" : "flex justify-start"}>
+        {visibleMessages.map((message, index) => (
+          <div
+            key={message.id}
+            ref={index === visibleMessages.length - 1 ? lastMessageRef : undefined}
+            className={message.role === "user" ? "flex justify-end scroll-mt-2" : "flex justify-start scroll-mt-2"}
+          >
             <div className={message.role === "user" ? "max-w-sm" : "max-w-md space-y-2"}>
-              {message.content && (
-                <div
-                  className={
-                    message.role === "user"
-                      ? "rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm"
-                      : "text-sm text-heading whitespace-pre-wrap"
-                  }
-                >
-                  {message.content}
-                </div>
-              )}
+              {message.content &&
+                (message.role === "user" ? (
+                  <div className="rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm">
+                    {message.content}
+                  </div>
+                ) : (
+                  <MarkdownContent text={message.content} />
+                ))}
               {message.widgets?.map((widget, i) => (
                 <WidgetRenderer key={i} widget={widget} actions={actions} />
               ))}
@@ -237,7 +252,9 @@ export function ChatWindow() {
           </div>
         ))}
         {loading && <div className="text-sm text-subtle">Thinking...</div>}
-        <div ref={bottomRef} />
+        {/* Filler so the newest turn can always be scrolled to the top of the
+            viewport, leaving one exchange in view at a time. */}
+        <div className="h-[70vh] shrink-0" aria-hidden="true" />
       </div>
 
       {error && (
@@ -268,6 +285,11 @@ export function ChatWindow() {
           Send
         </Button>
       </div>
+      </div>
+
+      <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col">
+        <ProgressPanel refreshKey={progressKey} />
+      </aside>
     </div>
   );
 }
