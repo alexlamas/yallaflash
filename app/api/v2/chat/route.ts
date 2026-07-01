@@ -1,0 +1,135 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createClient } from "@/utils/supabase/server";
+import { incrementUsage } from "@/app/services/aiUsageService";
+import { handleApiError } from "@/app/api/utils";
+import { TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
+import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/lib/tools";
+import type { Widget } from "@/app/v2/lib/types";
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const MODEL = "claude-sonnet-4-20250514";
+const MAX_TOOL_ITERATIONS = 5;
+
+const ONBOARDING_GREETING =
+  "Hey! I'm your Lebanese Arabic tutor. Want to add some words you already have in mind, or browse a starter pack to get going?";
+
+type ChatRequest = {
+  conversationId?: string;
+  message?: string;
+};
+
+export async function POST(req: Request) {
+  try {
+    const supabase = await createClient(cookies());
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
+    const body: ChatRequest = await req.json();
+    const conversationId = body.conversationId ?? (await createConversation(supabase, user.id));
+
+    // Bootstrap call for a brand-new conversation: skip the model entirely
+    // and deterministically show the onboarding choice.
+    if (!body.message) {
+      const assistantMessage = await insertMessage(supabase, conversationId, "assistant", ONBOARDING_GREETING, [
+        { type: "onboarding_choice" },
+      ]);
+      return NextResponse.json({ conversationId, message: assistantMessage });
+    }
+
+    await insertMessage(supabase, conversationId, "user", body.message, []);
+
+    const { data: historyRows, error: historyError } = await supabase
+      .from("v2_messages")
+      .select("role, content")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+    if (historyError) throw historyError;
+
+    const languageId = await getDefaultLanguageId(supabase);
+    const ctx = { supabase, userId: user.id, languageId };
+
+    const messages: Anthropic.MessageParam[] = (historyRows ?? []).map((row) => ({
+      role: row.role as "user" | "assistant",
+      content: row.content,
+    }));
+
+    const widgets: Widget[] = [];
+    let finalText = "";
+
+    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 1024,
+        system: TUTOR_SYSTEM_PROMPT,
+        tools: TOOL_DEFINITIONS,
+        messages,
+      });
+
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+      );
+      finalText = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === "text")
+        .map((block) => block.text)
+        .join("\n");
+
+      if (toolUseBlocks.length === 0) break;
+
+      messages.push({ role: "assistant", content: response.content });
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const block of toolUseBlocks) {
+        const { result, widget } = await executeTool(ctx, block.name, block.input as Record<string, unknown>);
+        if (widget) widgets.push(widget);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: JSON.stringify(result),
+        });
+      }
+      messages.push({ role: "user", content: toolResults });
+
+      if (response.stop_reason !== "tool_use") break;
+    }
+
+    await incrementUsage(user.id);
+
+    const assistantMessage = await insertMessage(supabase, conversationId, "assistant", finalText, widgets);
+    return NextResponse.json({ conversationId, message: assistantMessage });
+  } catch (error) {
+    return handleApiError(error, "Failed to send message");
+  }
+}
+
+async function createConversation(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("v2_conversations")
+    .insert({ user_id: userId })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id as string;
+}
+
+async function insertMessage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  conversationId: string,
+  role: "user" | "assistant",
+  content: string,
+  widgets: Widget[]
+) {
+  const { data, error } = await supabase
+    .from("v2_messages")
+    .insert({ conversation_id: conversationId, role, content, widgets })
+    .select("id, conversation_id, role, content, widgets, created_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
