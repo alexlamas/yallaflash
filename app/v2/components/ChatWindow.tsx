@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowUp, Trees } from "lucide-react";
+import { ArrowLeft, ArrowUp, ImagePlus, Trees, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -75,8 +75,10 @@ export function ChatWindow() {
   // Interactions are tracked here (not just inside widget components) so the
   // chips bar knows whether the newest interactive widget is still waiting.
   const [answeredKeys, setAnsweredKeys] = useState<Set<string>>(new Set());
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refreshProgress = () => setProgressKey((key) => key + 1);
   const recordAnswered = (key: string) =>
@@ -268,7 +270,67 @@ export function ChatWindow() {
     }
   }
 
+  function handleAttachImage(file: File | undefined) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setAttachedImage(String(reader.result));
+    reader.readAsDataURL(file);
+  }
+
+  // Image-add path: V1's vision extractor parses the photo deterministically
+  // for the client (no chat-model round trip), then the standard
+  // preview -> confirm flow takes over.
+  async function extractFromImage() {
+    if (!attachedImage) return;
+    const caption = input.trim();
+    const image = attachedImage;
+    setInput("");
+    setAttachedImage(null);
+    setError(null);
+    setLoading(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: nextLocalId(),
+        conversation_id: conversationId ?? "",
+        role: "user",
+        content: caption ? `Sent a photo: ${caption}` : "Sent a photo",
+        widgets: [],
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    try {
+      const result = await fetchJSON<{
+        words: { english: string; arabic: string; transliteration: string; type: string }[];
+      }>("/api/words/bulk-extract", { image, text: caption || undefined });
+      const proposals: WordProposal[] = (result.words ?? []).map((w) => ({
+        arabizi: w.transliteration,
+        script: w.arabic,
+        english: w.english,
+        type: w.type,
+        notes: null,
+        memory_hook: null,
+      }));
+      if (proposals.length === 0) {
+        setError("Couldn't find any vocabulary in that image.");
+        return;
+      }
+      appendLocalMessage(
+        `Found ${proposals.length} word${proposals.length === 1 ? "" : "s"} in your photo -- confirm to add them:`,
+        [{ type: "add_words_preview", proposals }]
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't read that image.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleSubmit() {
+    if (attachedImage) {
+      extractFromImage();
+      return;
+    }
     const text = input;
     setInput("");
     sendMessage(text);
@@ -714,7 +776,46 @@ export function ChatWindow() {
             </div>
           )}
 
-          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-2 transition-shadow focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
+          {attachedImage && (
+            <div className="max-w-2xl mx-auto flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={attachedImage}
+                alt="Attached"
+                className="h-12 w-12 rounded-lg object-cover border border-gray-200 shadow-sm"
+              />
+              <span className="text-xs text-subtle">
+                Photo attached -- send to extract vocabulary from it.
+              </span>
+              <button
+                onClick={() => setAttachedImage(null)}
+                aria-label="Remove photo"
+                className="h-6 w-6 rounded-full border border-gray-200 bg-white flex items-center justify-center text-gray-400 hover:text-heading"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-2xl border border-gray-200 bg-white shadow-sm px-3 py-2 transition-shadow focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                handleAttachImage(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              aria-label="Add a photo"
+              className="mb-1 h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors disabled:opacity-40"
+            >
+              <ImagePlus className="h-[18px] w-[18px]" />
+            </button>
             <Textarea
               ref={textareaRef}
               rows={1}
@@ -726,13 +827,19 @@ export function ChatWindow() {
                   handleSubmit();
                 }
               }}
-              placeholder={reviewPending ? "Ask about this word..." : placeholder}
+              placeholder={
+                attachedImage
+                  ? "Add a note about the photo (optional)..."
+                  : reviewPending
+                  ? "Ask about this word..."
+                  : placeholder
+              }
               disabled={loading}
               className="border-0 shadow-none focus-visible:ring-0 resize-none min-h-[30px] max-h-40 px-0 py-1.5 text-[15px] bg-transparent"
             />
             <button
               onClick={handleSubmit}
-              disabled={loading || !input.trim()}
+              disabled={loading || (!input.trim() && !attachedImage)}
               aria-label="Send"
               className="mb-0.5 h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
             >

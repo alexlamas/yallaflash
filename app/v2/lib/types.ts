@@ -65,6 +65,7 @@ export type ReviewTier = "easy" | "medium" | "hard";
 export interface WordProposal {
   arabizi: string;
   english: string;
+  script?: string | null;
   type: string | null;
   notes: string | null;
   memory_hook: string | null;

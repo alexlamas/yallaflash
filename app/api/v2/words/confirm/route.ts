@@ -31,6 +31,7 @@ export async function POST(req: Request) {
           language_id: languageId,
           arabizi: p.arabizi,
           english: p.english,
+          script: p.script ?? null,
           type: p.type ?? null,
           notes: p.notes ?? null,
           memory_hook: p.memory_hook ?? null,

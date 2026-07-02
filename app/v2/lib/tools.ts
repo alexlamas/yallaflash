@@ -80,6 +80,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
             properties: {
               arabizi: { type: "string", description: "Exactly as the user typed it" },
               english: { type: "string" },
+              script: { type: "string", description: "Arabic script, only if confident" },
               type: { type: "string" },
               notes: { type: "string" },
               memory_hook: { type: "string" },

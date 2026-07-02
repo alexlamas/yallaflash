@@ -27,7 +27,10 @@ export function AddWordsPreview({
         <div className="space-y-2">
           {widget.proposals.map((p, i) => (
             <div key={i} className="text-sm border-b pb-2 last:border-b-0">
-              <div className="font-medium">{p.arabizi} <span className="text-subtle">-- {p.english}</span></div>
+              <div className="font-medium">
+                {p.arabizi} {p.script && <span dir="rtl" className="mx-1">{p.script}</span>}
+                <span className="text-subtle">-- {p.english}</span>
+              </div>
               {p.type && <div className="text-xs text-subtle">{p.type}</div>}
               {p.flagged_assumptions?.map((flag, j) => (
                 <div key={j} className="text-xs text-amber-700">
