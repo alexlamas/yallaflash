@@ -14,10 +14,11 @@ function HomeContent() {
   const { isLoading: isWordsLoading } = useWords();
   const { onboardingCompleted, isLoading: isProfileLoading } = useProfile();
 
-  // Redirect to onboarding if not completed
+  // New users go straight to the chat tutor -- its onboarding widget replaces
+  // the old multi-step wizard (which still exists at /onboarding for now).
   useEffect(() => {
     if (!isAuthLoading && !isProfileLoading && session && !onboardingCompleted) {
-      router.replace("/onboarding");
+      router.replace("/chat");
     }
   }, [isAuthLoading, isProfileLoading, session, onboardingCompleted, router]);
 

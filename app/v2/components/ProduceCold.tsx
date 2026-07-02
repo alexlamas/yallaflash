@@ -29,7 +29,7 @@ export function ProduceCold({
   };
 
   const card = (
-    <Card className={cn(active ? "rounded-3xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
           {widget.cue.english}

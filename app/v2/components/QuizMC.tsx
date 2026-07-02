@@ -41,7 +41,7 @@ export function QuizMC({
   }, [active, selected, widget.options]);
 
   const card = (
-    <Card className={cn(active ? "rounded-3xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
           <div className={active ? "text-4xl" : "text-2xl"} dir="rtl">

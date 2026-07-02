@@ -29,7 +29,12 @@ export function PackList({
               <div className="text-sm font-medium">{pack.name}</div>
               {pack.description && <div className="text-xs text-subtle">{pack.description}</div>}
             </div>
-            <Button size="sm" disabled={startedId !== null} onClick={() => handleStart(pack.id)}>
+            <Button
+              size="sm"
+              disabled={startedId !== null}
+              onClick={() => handleStart(pack.id)}
+              className="bg-green-600 hover:bg-green-700"
+            >
               {startedId === pack.id ? "Started" : "Start"}
             </Button>
           </div>

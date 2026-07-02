@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export function OnboardingChoice({
   onChoose,
@@ -21,18 +22,24 @@ export function OnboardingChoice({
     <Card className="max-w-sm">
       <CardContent className="p-4 flex gap-2">
         <Button
-          variant={choice === "add_words" ? "default" : "outline"}
+          variant="outline"
           disabled={choice !== null}
           onClick={() => handleChoose("add_words")}
-          className="flex-1"
+          className={cn(
+            "flex-1 hover:border-green-400 hover:bg-green-50/50",
+            choice === "add_words" && "bg-green-600 border-green-600 text-white hover:bg-green-600"
+          )}
         >
           Add words
         </Button>
         <Button
-          variant={choice === "browse_packs" ? "default" : "outline"}
+          variant="outline"
           disabled={choice !== null}
           onClick={() => handleChoose("browse_packs")}
-          className="flex-1"
+          className={cn(
+            "flex-1 hover:border-green-400 hover:bg-green-50/50",
+            choice === "browse_packs" && "bg-green-600 border-green-600 text-white hover:bg-green-600"
+          )}
         >
           Browse packs
         </Button>

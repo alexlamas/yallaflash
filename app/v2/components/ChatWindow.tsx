@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowUp, Trees } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
 import { MarkdownContent } from "./MarkdownContent";
-import { ProgressPanel } from "./ProgressPanel";
+import { ProgressPanel, type ProgressData } from "./ProgressPanel";
 import { TutorStrip } from "./TutorStrip";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 
@@ -70,9 +70,7 @@ export function ChatWindow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressKey, setProgressKey] = useState(0);
-  const [progressSnapshot, setProgressSnapshot] = useState<{ dueNow: number; percent: number } | null>(
-    null
-  );
+  const [progressData, setProgressData] = useState<ProgressData | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   // Interactions are tracked here (not just inside widget components) so the
   // chips bar knows whether the newest interactive widget is still waiting.
@@ -97,6 +95,31 @@ export function ChatWindow() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // One shared progress fetch for the sidebar, mobile bar, sheet, and hero.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/v2/progress")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((result: ProgressData | null) => {
+        if (!cancelled && result) setProgressData(result);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [progressKey]);
+
+  const progressTotals = progressData
+    ? progressData.counts.new + progressData.counts.learning + progressData.counts.learned
+    : 0;
+  const progressPercent =
+    !progressData || progressTotals === 0
+      ? 0
+      : Math.round(
+          ((progressData.counts.learned + 0.5 * progressData.counts.learning) / progressTotals) * 100
+        );
+  const dueNow = progressData?.counts.dueNow ?? 0;
 
   const visibleMessages = useMemo(
     () =>
@@ -405,8 +428,15 @@ export function ChatWindow() {
 
   const reviewPending = pending !== null && isReviewWidget(pending.widget);
 
+  // Session-start hero: a returning user's first screen is a real "ready to
+  // review" moment, not a lone chat bubble floating in gradient.
+  const showHero =
+    visibleMessages.length === 1 &&
+    visibleMessages[0].role === "assistant" &&
+    !(visibleMessages[0].widgets ?? []).some((w) => w.type === "onboarding_choice");
+
   const chips: { label: string; primary?: boolean; onClick: () => void }[] = (() => {
-    if (loading || messages.length === 0) return [];
+    if (loading || messages.length === 0 || showHero) return [];
     if (pending) {
       if (reviewPending) {
         const reviewWidget = pending.widget as ReviewWidget;
@@ -446,7 +476,9 @@ export function ChatWindow() {
       <div className="flex flex-col items-center justify-center h-[100dvh] max-w-sm mx-auto text-center gap-3 px-4">
         <div className="text-sm font-medium text-heading">Couldn&apos;t start the chat</div>
         <div className="text-sm text-subtle">{error}</div>
-        <Button onClick={bootstrap}>Try again</Button>
+        <Button onClick={bootstrap} className="bg-green-600 hover:bg-green-700">
+          Try again
+        </Button>
       </div>
     );
   }
@@ -455,7 +487,7 @@ export function ChatWindow() {
     if (message.role === "user") {
       return (
         <div key={message.id} className="flex justify-end">
-          <div className="max-w-sm rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm">
+          <div className="max-w-sm rounded-2xl bg-green-700 text-white px-4 py-2 text-sm">
             {message.content}
           </div>
         </div>
@@ -471,14 +503,11 @@ export function ChatWindow() {
       const key = `${message.id}:${j}`;
       const isActiveWidget =
         inActiveView && (pending?.key === key || (isLastAssistant && widget.type === "word_card"));
+      // Entrance/exit animation lives on the message wrapper; this stays a
+      // motion.div purely so the element type never changes (a remount would
+      // reset the widget's internal answered state).
       return (
-        <motion.div
-          key={j}
-          className={cn(isActiveWidget && "py-3")}
-          initial={{ opacity: 0, y: 16, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
-        >
+        <motion.div key={j} initial={false} className={cn(isActiveWidget && "py-3")}>
           <WidgetRenderer widget={widget} actions={actionsFor(key)} active={isActiveWidget} />
         </motion.div>
       );
@@ -491,15 +520,7 @@ export function ChatWindow() {
       const cardFirst = (message.widgets ?? []).some(
         (w) => w.type === "quiz_mc" || w.type === "recall_input" || w.type === "produce_cold" || w.type === "word_card" || w.type === "review_verdict"
       );
-      const strip = message.content && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25, delay: 0.08, ease: "easeOut" }}
-        >
-          <TutorStrip text={message.content} />
-        </motion.div>
-      );
+      const strip = message.content && <TutorStrip text={message.content} />;
       return (
         <div key={message.id} className="w-full space-y-3">
           {cardFirst ? (
@@ -552,24 +573,20 @@ export function ChatWindow() {
           <div className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden">
             <div
               className="h-full bg-green-500 rounded-full transition-all duration-700"
-              style={{ width: `${progressSnapshot?.percent ?? 0}%` }}
+              style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <span className="text-xs font-mono text-subtle tabular-nums">
-            {progressSnapshot?.percent ?? 0}%
-          </span>
+          <span className="text-xs font-mono text-subtle tabular-nums">{progressPercent}%</span>
           <Sheet>
             <SheetTrigger asChild>
               <button className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white shadow-sm px-3 py-1.5 text-xs font-medium text-heading">
                 <Trees className="h-3.5 w-3.5 text-green-600" />
-                {progressSnapshot && progressSnapshot.dueNow > 0
-                  ? `${progressSnapshot.dueNow} due`
-                  : "Progress"}
+                {dueNow > 0 ? `${dueNow} due` : "Progress"}
               </button>
             </SheetTrigger>
             <SheetContent side="right" className="p-0 w-[320px] bg-stone-50">
               <SheetTitle className="sr-only">Progress</SheetTitle>
-              <ProgressPanel refreshKey={progressKey} />
+              <ProgressPanel data={progressData} />
             </SheetContent>
           </Sheet>
         </div>
@@ -596,7 +613,68 @@ export function ChatWindow() {
                 {earlierMessages.map((message, i) => renderMessage(message, i, false))}
               </div>
             )}
-            {activeMessages.map((message, i) => renderMessage(message, activeStart + i, true))}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {showHero ? (
+                <motion.div
+                  key="session-hero"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -24, scale: 0.97 }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  className="text-center space-y-6 py-8"
+                >
+                  <div className="text-[10px] font-mono tracking-[0.2em] text-subtle">
+                    REVIEW QUEUE
+                  </div>
+                  <div>
+                    <div className="font-title text-7xl text-heading leading-none">{dueNow}</div>
+                    <div className="text-sm text-subtle mt-2">
+                      {dueNow === 0
+                        ? "all clear -- nothing due right now"
+                        : dueNow === 1
+                        ? "word due now"
+                        : "words due now"}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center gap-2.5 flex-wrap">
+                    {dueNow > 0 && (
+                      <button
+                        onClick={() => serveNext()}
+                        disabled={loading}
+                        className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                      >
+                        Yalla, start review
+                      </button>
+                    )}
+                    <button
+                      onClick={() => sendMessage("I want to add some new words")}
+                      disabled={loading}
+                      className={cn(
+                        "rounded-full px-6 py-3 text-base font-medium shadow-sm border transition-colors disabled:opacity-50",
+                        dueNow > 0
+                          ? "bg-white border-gray-200 text-heading hover:bg-gray-50"
+                          : "bg-green-600 border-green-600 text-white hover:bg-green-700"
+                      )}
+                    >
+                      Add words
+                    </button>
+                  </div>
+                </motion.div>
+              ) : (
+                activeMessages.map((message, i) => (
+                  <motion.div
+                    key={message.id}
+                    layout
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -24, scale: 0.97 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                  >
+                    {renderMessage(message, activeStart + i, true)}
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
             {loading && (
               <div className="flex justify-center" aria-live="polite">
                 <span className="text-[11px] font-mono tracking-[0.14em] text-subtle animate-pulse">
@@ -636,7 +714,7 @@ export function ChatWindow() {
             </div>
           )}
 
-          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-3xl border border-gray-200 bg-white shadow-sm px-4 py-2 transition-shadow focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
+          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-2 transition-shadow focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
             <Textarea
               ref={textareaRef}
               rows={1}
@@ -664,10 +742,8 @@ export function ChatWindow() {
         </div>
       </div>
 
-      {/* display:none below lg, but stays mounted so it feeds the mobile
-          top bar's snapshot numbers */}
       <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-stone-50/60">
-        <ProgressPanel refreshKey={progressKey} onSnapshot={setProgressSnapshot} />
+        <ProgressPanel data={progressData} />
       </aside>
     </div>
   );

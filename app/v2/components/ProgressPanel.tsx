@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { CedarForest } from "./CedarForest";
 import type { ProgressState } from "@/app/v2/lib/types";
 
-interface ProgressWord {
+export interface ProgressWord {
   id: string;
   arabizi: string;
   english: string;
@@ -17,7 +17,7 @@ interface ProgressWord {
   updated_at: string;
 }
 
-interface ProgressData {
+export interface ProgressData {
   counts: { new: number; learning: number; learned: number; dueNow: number };
   words: ProgressWord[];
 }
@@ -69,42 +69,10 @@ function SignalBars({ retention }: { retention: number }) {
   );
 }
 
-export function ProgressPanel({
-  refreshKey,
-  onSnapshot,
-}: {
-  refreshKey: number;
-  // Lets the chat shell mirror headline numbers (mobile top bar) without
-  // duplicating the fetch.
-  onSnapshot?: (snapshot: { dueNow: number; percent: number }) => void;
-}) {
-  const [data, setData] = useState<ProgressData | null>(null);
+// Data is fetched once by the chat shell and shared between the desktop
+// sidebar and the mobile sheet, so the sheet never opens onto a spinner.
+export function ProgressPanel({ data }: { data: ProgressData | null }) {
   const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/v2/progress")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((result: ProgressData | null) => {
-        if (cancelled || !result) return;
-        setData(result);
-        const snapshotTotal = result.counts.new + result.counts.learning + result.counts.learned;
-        onSnapshot?.({
-          dueNow: result.counts.dueNow,
-          percent:
-            snapshotTotal === 0
-              ? 0
-              : Math.round(
-                  ((result.counts.learned + 0.5 * result.counts.learning) / snapshotTotal) * 100
-                ),
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
 
   // Live tick: drives the countdown and lets retention estimates decay in
   // real time while the panel is open.

@@ -17,7 +17,7 @@ export function WordCard({
     <Card
       className={
         active
-          ? "w-full max-w-md mx-auto bg-red-50/40 border-red-100 overflow-hidden rounded-3xl shadow-lg"
+          ? "w-full max-w-md mx-auto bg-red-50/40 border-red-100 overflow-hidden rounded-2xl shadow-lg"
           : "max-w-sm bg-red-50/40 border-red-100 overflow-hidden"
       }
     >
