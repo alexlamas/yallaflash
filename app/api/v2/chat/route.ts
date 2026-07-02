@@ -32,7 +32,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const body: ChatRequest = await req.json();
+    // The auth middleware can strip the POST body while refreshing a
+    // just-issued session token (fresh signup -> first bootstrap call), and
+    // the bootstrap body is empty-ish anyway -- treat unparseable as empty.
+    const body: ChatRequest = await req.json().catch(() => ({}));
     const conversationId = body.conversationId ?? (await createConversation(supabase, user.id));
 
     // Bootstrap call for a brand-new conversation: skip the model entirely.

@@ -140,7 +140,7 @@ export function AuthDialog() {
                 <p className="text-body text-sm leading-relaxed">
                   {step === "email"
                     ? "Sign in to continue learning, or create an account to get started."
-                    : "Enter your password to continue."}
+                    : "Enter your password. If you're new here, this creates your account."}
                 </p>
               </div>
             )}
