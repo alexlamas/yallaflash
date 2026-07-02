@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowUp } from "lucide-react";
+import { ArrowLeft, ArrowUp, Trees } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
@@ -69,6 +70,9 @@ export function ChatWindow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressKey, setProgressKey] = useState(0);
+  const [progressSnapshot, setProgressSnapshot] = useState<{ dueNow: number; percent: number } | null>(
+    null
+  );
   const [showHistory, setShowHistory] = useState(false);
   // Interactions are tracked here (not just inside widget components) so the
   // chips bar knows whether the newest interactive widget is still waiting.
@@ -439,7 +443,7 @@ export function ChatWindow() {
 
   if (error && messages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen max-w-sm mx-auto text-center gap-3 px-4">
+      <div className="flex flex-col items-center justify-center h-[100dvh] max-w-sm mx-auto text-center gap-3 px-4">
         <div className="text-sm font-medium text-heading">Couldn&apos;t start the chat</div>
         <div className="text-sm text-subtle">{error}</div>
         <Button onClick={bootstrap}>Try again</Button>
@@ -526,15 +530,49 @@ export function ChatWindow() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-[100dvh]">
       <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
         <Link
           href="/"
           aria-label="Back to home"
-          className="absolute top-4 left-4 z-10 h-9 w-9 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm flex items-center justify-center text-gray-500 hover:text-heading hover:bg-white transition-colors"
+          className="hidden lg:flex absolute top-4 left-4 z-10 h-9 w-9 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm items-center justify-center text-gray-500 hover:text-heading hover:bg-white transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
+
+        {/* Mobile top bar: back, mini progress, and the panel behind a sheet */}
+        <div className="lg:hidden flex items-center gap-3 px-3 py-2">
+          <Link
+            href="/"
+            aria-label="Back to home"
+            className="h-8 w-8 shrink-0 rounded-full bg-white/80 border border-gray-200 shadow-sm flex items-center justify-center text-gray-500"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden">
+            <div
+              className="h-full bg-green-500 rounded-full transition-all duration-700"
+              style={{ width: `${progressSnapshot?.percent ?? 0}%` }}
+            />
+          </div>
+          <span className="text-xs font-mono text-subtle tabular-nums">
+            {progressSnapshot?.percent ?? 0}%
+          </span>
+          <Sheet>
+            <SheetTrigger asChild>
+              <button className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white shadow-sm px-3 py-1.5 text-xs font-medium text-heading">
+                <Trees className="h-3.5 w-3.5 text-green-600" />
+                {progressSnapshot && progressSnapshot.dueNow > 0
+                  ? `${progressSnapshot.dueNow} due`
+                  : "Progress"}
+              </button>
+            </SheetTrigger>
+            <SheetContent side="right" className="p-0 w-[320px] bg-stone-50">
+              <SheetTitle className="sr-only">Progress</SheetTitle>
+              <ProgressPanel refreshKey={progressKey} />
+            </SheetContent>
+          </Sheet>
+        </div>
         {earlierMessages.length > 0 && (
           <button
             onClick={() => setShowHistory((s) => !s)}
@@ -560,8 +598,10 @@ export function ChatWindow() {
             )}
             {activeMessages.map((message, i) => renderMessage(message, activeStart + i, true))}
             {loading && (
-              <div className="text-sm text-subtle animate-pulse" aria-live="polite">
-                Thinking...
+              <div className="flex justify-center" aria-live="polite">
+                <span className="text-[11px] font-mono tracking-[0.14em] text-subtle animate-pulse">
+                  THINKING...
+                </span>
               </div>
             )}
           </div>
@@ -624,8 +664,10 @@ export function ChatWindow() {
         </div>
       </div>
 
+      {/* display:none below lg, but stays mounted so it feeds the mobile
+          top bar's snapshot numbers */}
       <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-stone-50/60">
-        <ProgressPanel refreshKey={progressKey} />
+        <ProgressPanel refreshKey={progressKey} onSnapshot={setProgressSnapshot} />
       </aside>
     </div>
   );

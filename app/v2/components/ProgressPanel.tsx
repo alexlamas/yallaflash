@@ -69,7 +69,15 @@ function SignalBars({ retention }: { retention: number }) {
   );
 }
 
-export function ProgressPanel({ refreshKey }: { refreshKey: number }) {
+export function ProgressPanel({
+  refreshKey,
+  onSnapshot,
+}: {
+  refreshKey: number;
+  // Lets the chat shell mirror headline numbers (mobile top bar) without
+  // duplicating the fetch.
+  onSnapshot?: (snapshot: { dueNow: number; percent: number }) => void;
+}) {
   const [data, setData] = useState<ProgressData | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -77,13 +85,25 @@ export function ProgressPanel({ refreshKey }: { refreshKey: number }) {
     let cancelled = false;
     fetch("/api/v2/progress")
       .then((res) => (res.ok ? res.json() : null))
-      .then((result) => {
-        if (!cancelled && result) setData(result);
+      .then((result: ProgressData | null) => {
+        if (cancelled || !result) return;
+        setData(result);
+        const snapshotTotal = result.counts.new + result.counts.learning + result.counts.learned;
+        onSnapshot?.({
+          dueNow: result.counts.dueNow,
+          percent:
+            snapshotTotal === 0
+              ? 0
+              : Math.round(
+                  ((result.counts.learned + 0.5 * result.counts.learning) / snapshotTotal) * 100
+                ),
+        });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
   // Live tick: drives the countdown and lets retention estimates decay in

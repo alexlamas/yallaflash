@@ -67,7 +67,7 @@ export function QuizMC({
               onClick={() => handleSelect(option)}
             >
               {active && (
-                <span className="mr-2 text-xs text-disabled border rounded px-1.5 py-0.5">
+                <span className="mr-2 text-xs text-disabled border rounded px-1.5 py-0.5 hidden sm:inline-block">
                   {index + 1}
                 </span>
               )}
