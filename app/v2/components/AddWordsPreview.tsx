@@ -14,6 +14,9 @@ export function AddWordsPreview({
 }) {
   const [confirmed, setConfirmed] = useState(false);
 
+  // Belt-and-suspenders against an empty staging call reaching the UI.
+  if (widget.proposals.length === 0) return null;
+
   const handleConfirm = () => {
     if (confirmed) return;
     setConfirmed(true);

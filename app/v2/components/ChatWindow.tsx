@@ -634,12 +634,10 @@ export function ChatWindow() {
     });
 
     if (inActiveView) {
-      // Stage layout: review cards lead with the tutor's words as a strip
-      // below; conversational messages (onboarding, packs, previews) read
-      // top-down like normal chat.
-      const cardFirst = (message.widgets ?? []).some(
-        (w) => w.type === "quiz_mc" || w.type === "recall_input" || w.type === "produce_cold" || w.type === "word_card" || w.type === "review_verdict"
-      );
+      // Stage layout: a verdict leads with the tutor's commentary below it,
+      // but question cards FOLLOW the tutor's text -- a lead-in like
+      // "First one:" dangling under the card reads like a stray reply.
+      const cardFirst = (message.widgets ?? []).some((w) => w.type === "review_verdict");
       const strip = message.content && <TutorStrip text={message.content} />;
       return (
         <div key={message.id} className="w-full space-y-3">

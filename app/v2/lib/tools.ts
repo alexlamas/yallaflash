@@ -387,7 +387,11 @@ async function updateWordNote(
   return { result: { word_id: wordId, notes: next } };
 }
 
-function proposeWords(proposals: WordProposal[]): { result: unknown; widget: Widget } {
+function proposeWords(proposals: WordProposal[]): { result: unknown; widget?: Widget } {
+  // An empty call must not surface a "0 words to add" widget to the user.
+  if (!Array.isArray(proposals) || proposals.length === 0) {
+    return { result: { error: "No proposals given -- nothing was staged." } };
+  }
   return {
     result: { staged: proposals.length },
     widget: { type: "add_words_preview", proposals },
