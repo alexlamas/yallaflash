@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 import { useWords } from "../contexts/WordsContext";
 import { useProfile } from "../contexts/ProfileContext";
-import { LandingPage } from "../components/LandingPage";
+import { LandingV2 } from "@/app/v2/components/Landing";
 import { Dashboard } from "../components/Dashboard";
 
 function HomeContent() {
@@ -26,9 +26,10 @@ function HomeContent() {
     return null;
   }
 
-  // Show landing page for non-authenticated users
+  // Show landing page for non-authenticated users. V2 memory-app positioning
+  // supersedes the old course-style LandingPage (and its hero-copy A/B test).
   if (!session) {
-    return <LandingPage />;
+    return <LandingV2 />;
   }
 
   // Redirect to onboarding if not completed (don't render anything while redirecting)
