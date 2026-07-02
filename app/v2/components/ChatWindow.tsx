@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowUp, ImagePlus, Trees, X } from "lucide-react";
+import { ArrowUp, ImagePlus, LogOut, Trees, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,6 +13,13 @@ import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
 import { MarkdownContent } from "./MarkdownContent";
 import { ProgressPanel, type ProgressData } from "./ProgressPanel";
 import { TutorStrip } from "./TutorStrip";
+import { TypingIndicator } from "./TypingIndicator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
 
@@ -110,6 +117,42 @@ async function downscaleImage(file: File): Promise<string> {
     if (out.length <= MAX_IMAGE_DATA_URL_BYTES) return out;
   }
   return canvas.toDataURL("image/jpeg", 0.35);
+}
+
+// V2's app menu, hanging off the logo: the chat IS the app, so it carries
+// its own session controls instead of borrowing V1's header.
+function AccountMenu({ triggerClassName }: { triggerClassName?: string }) {
+  async function handleLogout() {
+    await createClient().auth.signOut();
+    window.location.href = "/";
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          aria-label="Menu"
+          className={cn(
+            "shrink-0 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm flex items-center justify-center hover:bg-white transition-colors",
+            triggerClassName
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="Yalla" className="h-5 w-5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem asChild>
+          <Link href="/" className="flex items-center gap-2">
+            <Undo2 className="h-4 w-4 text-gray-500" /> Old app
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleLogout} className="flex items-center gap-2">
+          <LogOut className="h-4 w-4 text-gray-500" /> Log out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function ChatWindow() {
@@ -434,6 +477,7 @@ export function ChatWindow() {
     english: string;
     script: string | null;
     next_review_date: string;
+    image_url: string | null;
   };
 
   // The whole point of this flow: multiple choice and exact matches are
@@ -468,6 +512,7 @@ export function ChatWindow() {
           correct: result.correct,
           script: result.script,
           next_review_date: result.next_review_date,
+          image_url: result.image_url,
         });
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
@@ -494,6 +539,7 @@ export function ChatWindow() {
           english: result.english,
           script: result.script,
           next_review_date: result.next_review_date,
+          image_url: result.image_url,
         },
       ]);
       setChecking(false);
@@ -631,7 +677,11 @@ export function ChatWindow() {
       });
       refreshProgress();
       if (verdictId) {
-        patchVerdict(verdictId, { script: result.script, next_review_date: result.next_review_date });
+        patchVerdict(verdictId, {
+          script: result.script,
+          next_review_date: result.next_review_date,
+          image_url: result.image_url,
+        });
       } else {
         appendLocalMessage("", [
           {
@@ -783,23 +833,14 @@ export function ChatWindow() {
   return (
     <div className="flex h-[100dvh]">
       <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
-        <Link
-          href="/"
-          aria-label="Back to home"
-          className="hidden lg:flex absolute top-4 left-4 z-10 h-9 w-9 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm items-center justify-center text-gray-500 hover:text-heading hover:bg-white transition-colors"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
+        {/* V2 owns its shell: the logo is the app menu (log out, old app). */}
+        <div className="hidden lg:block absolute top-4 left-4 z-10">
+          <AccountMenu triggerClassName="h-9 w-9" />
+        </div>
 
-        {/* Mobile top bar: back, mini progress, and the panel behind a sheet */}
+        {/* Mobile top bar: menu, mini progress, and the panel behind a sheet */}
         <div className="lg:hidden flex items-center gap-3 px-3 py-2">
-          <Link
-            href="/"
-            aria-label="Back to home"
-            className="h-8 w-8 shrink-0 rounded-full bg-white/80 border border-gray-200 shadow-sm flex items-center justify-center text-gray-500"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+          <AccountMenu triggerClassName="h-8 w-8" />
           <div className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden">
             <div
               className="h-full bg-green-500 rounded-full transition-all duration-700"
@@ -906,11 +947,7 @@ export function ChatWindow() {
               )}
             </AnimatePresence>
             {(loading || checking) && (
-              <div className="flex justify-center" aria-live="polite">
-                <span className="text-[11px] font-mono tracking-[0.14em] text-subtle animate-pulse">
-                  {checking ? "CHECKING..." : "THINKING..."}
-                </span>
-              </div>
+              <TypingIndicator label={checking ? "Checking your answer..." : undefined} />
             )}
           </div>
         </div>

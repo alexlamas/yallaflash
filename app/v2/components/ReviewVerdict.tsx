@@ -30,6 +30,14 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
         >
           {heading}
         </div>
+        {widget.image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={widget.image_url}
+            alt=""
+            className="h-20 w-20 rounded-xl object-cover mx-auto"
+          />
+        )}
         {widget.script && (
           <div className="text-3xl" dir="rtl">
             {widget.script}

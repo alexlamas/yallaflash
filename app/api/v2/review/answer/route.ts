@@ -4,6 +4,7 @@ import { createClient } from "@/utils/supabase/server";
 import { errorMessage, validateRequest } from "@/app/api/utils";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import { gradeColdRecall, gradeRecognition } from "@/app/v2/lib/grading";
+import { findImageForWord } from "@/app/v2/lib/tools";
 import type { ReviewTier } from "@/app/v2/lib/types";
 
 // Near-miss grading can make a Claude call on top of DB round trips.
@@ -81,6 +82,9 @@ export async function POST(req: Request) {
     );
     if (upsertError) throw upsertError;
 
+    // Post-answer is the leak-safe moment to surface the image bank.
+    const imageUrl = await findImageForWord(supabase, word.english);
+
     return NextResponse.json({
       correct,
       arabizi: word.arabizi,
@@ -89,6 +93,7 @@ export async function POST(req: Request) {
       etymology_note: word.etymology_note,
       etymology_confidence: word.etymology_confidence,
       next_review_date: nextReviewDate.toISOString(),
+      image_url: imageUrl,
     });
   } catch (error) {
     console.error("[v2/review/answer]", error);

@@ -141,5 +141,7 @@ export type Widget =
       english: string;
       script: string | null;
       next_review_date: string;
+      // From the shared image bank -- attached post-answer, so no leak risk.
+      image_url?: string | null;
     }
   | { type: "session_summary"; reviewed: number; correct: number };

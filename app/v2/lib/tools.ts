@@ -208,12 +208,13 @@ async function searchImages(ctx: ToolContext, query: string) {
 
 // Best-effort concept match for a word: exact concept first, then substring.
 // The bank is language-agnostic (keyed by English concept), so this works
-// unchanged for any future language.
-async function findImageForWord(ctx: ToolContext, english: string): Promise<string | null> {
+// unchanged for any future language. Exported for the review-answer route,
+// which attaches an image to verdict cards (post-answer, so no leak risk).
+export async function findImageForWord(supabase: SupabaseClient, english: string): Promise<string | null> {
   const concept = english.toLowerCase().trim();
   if (!concept) return null;
 
-  const { data: exact } = await ctx.supabase
+  const { data: exact } = await supabase
     .from("v2_images")
     .select("url")
     .eq("concept", concept)
@@ -222,7 +223,7 @@ async function findImageForWord(ctx: ToolContext, english: string): Promise<stri
 
   const safeConcept = concept.replace(/[,()%_]/g, " ").trim();
   if (!safeConcept) return null;
-  const { data: fuzzy } = await ctx.supabase
+  const { data: fuzzy } = await supabase
     .from("v2_images")
     .select("url")
     .ilike("concept", `%${safeConcept}%`)
@@ -242,7 +243,7 @@ async function getWordDetail(ctx: ToolContext, wordId: string): Promise<{ result
     .eq("user_id", ctx.userId)
     .eq("word_id", wordId)
     .maybeSingle();
-  const imageUrl = await findImageForWord(ctx, data.english);
+  const imageUrl = await findImageForWord(ctx.supabase, data.english);
   return {
     result: { ...data, user_note: progress?.notes ?? null },
     widget: {
