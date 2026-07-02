@@ -1,8 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Grading is a one-word yes/no call -- the fastest, cheapest model is right.
 const MODEL = "claude-haiku-4-5";
+
+// Constructed lazily so importing this module (e.g. in tests or without an
+// API key) never touches the SDK; only the LLM fallback paths need it.
+let anthropicClient: Anthropic | null = null;
+function anthropic(): Anthropic {
+  if (!anthropicClient) {
+    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return anthropicClient;
+}
 
 const NEAR_MISS_MAX_DISTANCE_RATIO = 0.25;
 
@@ -51,7 +60,7 @@ export async function gradeColdRecall(
   if (distance > nearMissThreshold) return false;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await anthropic().messages.create({
       model: MODEL,
       max_tokens: 5,
       messages: [
@@ -71,7 +80,57 @@ export async function gradeColdRecall(
   }
 }
 
-/** Grades multiple-choice / open-English-recall answers: exact normalized match. */
-export function gradeRecognition(submitted: string, expectedEnglish: string): boolean {
-  return normalize(submitted) === normalize(expectedEnglish);
+/**
+ * The stored English often packs several acceptable renderings into one
+ * string -- "a lot / very", "hello, hi", "to want (something)". Giving any
+ * one of them (with or without a leading article or "to") is correct.
+ */
+export function englishVariants(expectedEnglish: string): string[] {
+  const variants = new Set<string>([normalize(expectedEnglish)]);
+  const withoutParens = expectedEnglish.replace(/\([^)]*\)/g, " ");
+  variants.add(normalize(withoutParens));
+  for (const part of withoutParens.split(/\/|,|;|\bor\b/i)) {
+    const p = normalize(part);
+    if (!p) continue;
+    variants.add(p);
+    variants.add(p.replace(/^(to|a|an|the) /, ""));
+  }
+  return [...variants].filter(Boolean);
+}
+
+/**
+ * Grades answers where the user gives the English meaning. Matching any
+ * accepted variant is deterministic; everything else can fall back to a
+ * model yes/no for typos and honest synonyms. MC quizzes must NOT use the
+ * fallback -- clicking a wrong option that happens to be a synonym of the
+ * right answer would get graded correct.
+ */
+export async function gradeRecognition(
+  submitted: string,
+  expectedEnglish: string,
+  { llmFallback = true }: { llmFallback?: boolean } = {}
+): Promise<boolean> {
+  const answer = normalize(submitted);
+  if (!answer) return false;
+  if (englishVariants(expectedEnglish).includes(answer)) return true;
+  if (!llmFallback) return false;
+
+  try {
+    const response = await anthropic().messages.create({
+      model: MODEL,
+      max_tokens: 5,
+      messages: [
+        {
+          role: "user",
+          content: `A learner was asked the English meaning of a Lebanese Arabic word.\nAccepted meaning: "${expectedEnglish}"\nTheir answer: "${submitted}"\n\nDoes their answer express the same meaning? Allow synonyms and minor typos; reject different meanings. Reply with exactly one word: yes or no.`,
+        },
+      ],
+    });
+    const first = response.content[0];
+    const text = first?.type === "text" ? first.text.trim().toLowerCase() : "no";
+    return text.startsWith("yes");
+  } catch {
+    // API hiccup on the fallback call -- fall back to the strict result.
+    return false;
+  }
 }

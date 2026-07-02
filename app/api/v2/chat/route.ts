@@ -125,13 +125,26 @@ export async function POST(req: Request) {
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of toolUseBlocks) {
-        const { result, widget } = await executeTool(ctx, block.name, block.input as Record<string, unknown>);
-        if (widget) widgets.push(widget);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        });
+        // A tool failure (bad input, transient DB error) goes back to the
+        // model as an error result it can react to, instead of 500ing the
+        // whole turn.
+        try {
+          const { result, widget } = await executeTool(ctx, block.name, block.input as Record<string, unknown>);
+          if (widget) widgets.push(widget);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+          });
+        } catch (error) {
+          console.error(`[v2/chat] tool ${block.name}`, error);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: errorMessage(error),
+            is_error: true,
+          });
+        }
       }
       messages.push({ role: "user", content: toolResults });
 

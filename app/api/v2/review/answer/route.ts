@@ -42,11 +42,13 @@ export async function POST(req: Request) {
       .single();
     if (wordError) throw wordError;
 
+    // Easy tier is multiple choice -- clicked options must match exactly,
+    // so the synonym fallback stays off there.
     const correct = concede
       ? false
       : tier === "hard"
       ? await gradeColdRecall(submitted, word.arabizi)
-      : gradeRecognition(submitted, word.english);
+      : await gradeRecognition(submitted, word.english, { llmFallback: tier === "medium" });
 
     const rating = !correct ? 0 : tier === "hard" ? 3 : 2;
 

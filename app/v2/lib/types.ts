@@ -32,6 +32,9 @@ export type DueWord = V2Word & {
   interval: number;
   review_count: number;
   next_review_date: string;
+  // The user's running note on this word (v2_word_progress.notes), distinct
+  // from the word-level notes captured when the word was added.
+  user_note: string | null;
 };
 
 export interface V2Pack {

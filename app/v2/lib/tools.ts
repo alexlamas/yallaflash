@@ -67,6 +67,20 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "update_word_note",
+    description:
+      "Save or update your running note on a word -- the user's personal context: where they encountered it, who says it, usage nuances, corrections, mnemonics that clicked, related words. Notes persist across sessions and come back in get_due_words and get_word_detail. By default the note is appended to what's already there; use mode 'replace' to rewrite the whole note (e.g. tidying it up).",
+    input_schema: {
+      type: "object",
+      properties: {
+        word_id: { type: "string" },
+        note: { type: "string", description: "Telegraphic -- a line or two, not prose" },
+        mode: { type: "string", enum: ["append", "replace"], description: "Default append" },
+      },
+      required: ["word_id", "note"],
+    },
+  },
+  {
     name: "propose_words",
     description:
       "Stage parsed vocabulary as a preview widget for the user to confirm. Does not write to the database -- confirmation happens outside you.",
@@ -120,6 +134,13 @@ export async function executeTool(
       return getWordDetail(ctx, String(input.word_id ?? ""));
     case "start_review":
       return startReview(ctx, String(input.word_id ?? ""));
+    case "update_word_note":
+      return updateWordNote(
+        ctx,
+        String(input.word_id ?? ""),
+        String(input.note ?? ""),
+        input.mode === "replace" ? "replace" : "append"
+      );
     case "propose_words":
       return proposeWords(input.proposals as WordProposal[]);
     default:
@@ -130,7 +151,10 @@ export async function executeTool(
 async function getDueWords(ctx: ToolContext, limit: number) {
   const { data, error } = await ctx.supabase
     .from("v2_word_progress")
-    .select("word_id, status, interval, review_count, next_review_date, v2_words!inner(*)")
+    // "*" (not explicit columns) so the notes column being absent -- the
+    // 20260702 migration not applied yet -- degrades to user_note: null
+    // instead of a query error.
+    .select("*, v2_words!inner(*)")
     .eq("user_id", ctx.userId)
     .lte("next_review_date", new Date().toISOString())
     .order("next_review_date", { ascending: true })
@@ -146,6 +170,7 @@ async function getDueWords(ctx: ToolContext, limit: number) {
       interval: row.interval,
       review_count: row.review_count,
       next_review_date: row.next_review_date,
+      user_note: (row as { notes?: string | null }).notes ?? null,
     };
   });
 
@@ -210,9 +235,16 @@ async function getWordDetail(ctx: ToolContext, wordId: string): Promise<{ result
   const { data, error } = await ctx.supabase.from("v2_words").select("*").eq("id", wordId).maybeSingle();
   if (error) throw error;
   if (!data) return { result: null };
+  // "*" so a not-yet-migrated notes column degrades to null, not an error.
+  const { data: progress } = await ctx.supabase
+    .from("v2_word_progress")
+    .select("*")
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId)
+    .maybeSingle();
   const imageUrl = await findImageForWord(ctx, data.english);
   return {
-    result: data,
+    result: { ...data, user_note: progress?.notes ?? null },
     widget: {
       type: "word_card",
       word: { id: data.id, arabizi: data.arabizi, script: data.script, english: data.english, memory_hook: data.memory_hook },
@@ -316,6 +348,43 @@ async function getDistractors(ctx: ToolContext, word: { id: string; language_id:
     (e) => e.toLowerCase() !== word.english.toLowerCase()
   );
   return shuffle(pool).slice(0, 3);
+}
+
+// Writes to v2_word_progress.notes (per-user), not v2_words.notes -- pack
+// words are shared rows the user can't update, and the note is the user's
+// relationship with the word anyway. All other progress columns have
+// defaults, so the upsert also covers words with no progress row yet.
+async function updateWordNote(
+  ctx: ToolContext,
+  wordId: string,
+  note: string,
+  mode: "append" | "replace"
+) {
+  const trimmed = note.trim();
+  if (!wordId || !trimmed) {
+    return { result: { error: "word_id and a non-empty note are required" } };
+  }
+
+  const { data: progress, error: readError } = await ctx.supabase
+    .from("v2_word_progress")
+    .select("*")
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  const existing = progress?.notes?.trim() ?? "";
+  const next = mode === "replace" || !existing ? trimmed : `${existing}\n${trimmed}`;
+
+  const { error: writeError } = await ctx.supabase
+    .from("v2_word_progress")
+    .upsert(
+      { user_id: ctx.userId, word_id: wordId, notes: next },
+      { onConflict: "user_id,word_id" }
+    );
+  if (writeError) throw writeError;
+
+  return { result: { word_id: wordId, notes: next } };
 }
 
 function proposeWords(proposals: WordProposal[]): { result: unknown; widget: Widget } {
