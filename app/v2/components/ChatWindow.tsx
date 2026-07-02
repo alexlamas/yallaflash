@@ -38,6 +38,7 @@ const INTERACTIVE_TYPES = new Set<Widget["type"]>([
   "produce_cold",
   "add_words_preview",
   "pack_list",
+  "word_picker",
 ]);
 
 type ReviewWidget = Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>;
@@ -164,7 +165,15 @@ export function ChatWindow() {
   // True only while an ambiguous answer waits on the model fallback --
   // deterministic grades never set this.
   const [checking, setChecking] = useState(false);
+  // Background tutor commentary in flight (post-verdict) -- shows the typing
+  // indicator without blocking the chips, so Next word stays available.
+  const [commentaryPending, setCommentaryPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The next card, fetched while the user reads the current verdict, so
+  // Next word renders with zero wait.
+  const prefetchRef = useRef<ReviewWidget | null>(null);
+  // Running tally for the session-cleared summary card.
+  const sessionStats = useRef({ reviewed: 0, correct: 0 });
   const [progressKey, setProgressKey] = useState(0);
   const [progressData, setProgressData] = useState<ProgressData | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -366,9 +375,13 @@ export function ChatWindow() {
     return message?.widgets?.[index] ?? null;
   }
 
-  async function sendMessage(text: string) {
+  // background: true keeps the chips alive while the tutor works -- used for
+  // hidden ground-truth messages ([REVIEW RESULT] etc.) whose commentary is
+  // a nicety, not something the user should wait on.
+  async function sendMessage(text: string, { background = false } = {}) {
     if (!text.trim()) return;
-    setLoading(true);
+    if (background) setCommentaryPending(true);
+    else setLoading(true);
     setError(null);
     setMessages((prev) => [
       ...prev,
@@ -392,8 +405,26 @@ export function ChatWindow() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "That message didn't send.");
     } finally {
-      setLoading(false);
+      if (background) setCommentaryPending(false);
+      else setLoading(false);
     }
+  }
+
+  // Prefetches the next due card (no conversation writes) while the user
+  // reads the current verdict -- Next word then renders instantly.
+  function prefetchNext(excludeWordId?: string) {
+    if (!conversationId) return;
+    fetchJSON<{ widget?: ReviewWidget | null }>("/api/v2/review/next", {
+      conversationId,
+      excludeWordId,
+      peek: true,
+    })
+      .then((data) => {
+        prefetchRef.current = data.widget ?? null;
+      })
+      .catch(() => {
+        prefetchRef.current = null;
+      });
   }
 
   async function handleAttachImage(file: File | undefined) {
@@ -505,6 +536,8 @@ export function ChatWindow() {
           next_review_date: "",
         },
       ]);
+      sessionStats.current.reviewed += 1;
+      if (instant) sessionStats.current.correct += 1;
       try {
         const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted });
         refreshProgress();
@@ -514,8 +547,10 @@ export function ChatWindow() {
           next_review_date: result.next_review_date,
           image_url: result.image_url,
         });
+        prefetchNext(wordId);
         await sendMessage(
-          `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
+          `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
+          { background: true }
         );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save that review.");
@@ -543,8 +578,12 @@ export function ChatWindow() {
         },
       ]);
       setChecking(false);
+      sessionStats.current.reviewed += 1;
+      if (result.correct) sessionStats.current.correct += 1;
+      prefetchNext(wordId);
       await sendMessage(
-        `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
+        `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
+        { background: true }
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't grade that answer.");
@@ -566,7 +605,7 @@ export function ChatWindow() {
         );
         const summary = (result.words ?? []).map((w) => `${w.arabizi} = ${w.english}`).join(", ");
         refreshProgress();
-        await sendMessage(`[WORDS CONFIRMED] ${summary}`);
+        await sendMessage(`[WORDS CONFIRMED] ${summary}`, { background: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save those words.");
       }
@@ -598,6 +637,22 @@ export function ChatWindow() {
         setError(err instanceof Error ? err.message : "Couldn't start that pack.");
       }
     },
+    onStartWords: async (wordIds: string[]) => {
+      setError(null);
+      try {
+        await fetchJSON<{ count: number }>("/api/v2/words/start", { wordIds });
+        refreshProgress();
+        // The picked words are due now -- serve the first immediately, and
+        // let the tutor know off the critical path.
+        sendMessage(
+          `[PACK STARTED] the user picked ${wordIds.length} new words from the packs to start learning; the app is serving the first card now.`,
+          { background: true }
+        );
+        await serveNext();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't start those words.");
+      }
+    },
   };
 
   // Wrap actions so any interaction marks its widget as answered. Review
@@ -620,26 +675,82 @@ export function ChatWindow() {
         recordAnswered(key);
         baseActions.onStartPack(packId);
       },
+      onStartWords: (wordIds) => {
+        recordAnswered(key);
+        baseActions.onStartWords(wordIds);
+      },
     };
   }
 
-  // Serves the next due card without a model round trip -- the chips should
-  // feel instant. Falls back to the tutor when the conversation isn't ready.
-  async function serveNext(excludeWordId?: string) {
+  // Serves the next due card without a model round trip. A prefetched card
+  // renders with zero wait (the conversation record catches up in the
+  // background); otherwise one fast POST. When the queue is empty, the
+  // client owns the session-cleared moment.
+  async function serveNext(excludeWordId?: string, { ahead = false } = {}) {
     if (!conversationId) {
       sendMessage("next");
       return;
     }
-    setLoading(true);
     setError(null);
+
+    const cached = prefetchRef.current;
+    if (!ahead && cached && cached.word_id !== excludeWordId) {
+      prefetchRef.current = null;
+      appendLocalMessage("", [cached]);
+      fetchJSON("/api/v2/review/next", { conversationId, commitWidget: cached }).catch((err) =>
+        console.error("[serveNext] commit failed", err)
+      );
+      return;
+    }
+
+    setLoading(true);
     try {
-      const data = await fetchJSON<{ message: V2Message }>("/api/v2/review/next", {
+      const data = await fetchJSON<{ message?: V2Message; done?: boolean }>("/api/v2/review/next", {
         conversationId,
         excludeWordId,
+        ahead,
       });
-      setMessages((prev) => [...prev, data.message]);
+      if (data.done || !data.message) {
+        const stats = sessionStats.current;
+        sessionStats.current = { reviewed: 0, correct: 0 };
+        appendLocalMessage(
+          stats.reviewed > 0
+            ? "Queue cleared -- that's everything due."
+            : "Nothing due right now.",
+          stats.reviewed > 0
+            ? [{ type: "session_summary", reviewed: stats.reviewed, correct: stats.correct }]
+            : []
+        );
+        refreshProgress();
+        return;
+      }
+      setMessages((prev) => [...prev, data.message!]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't serve the next word.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Zero-due path: offer fresh reservoir words (pack words never started) as
+  // a picker widget. Starting them makes them due, so review continues.
+  async function learnNewWords() {
+    setError(null);
+    setLoading(true);
+    try {
+      const data = await fetchJSON<{ candidates: Extract<Widget, { type: "word_picker" }>["candidates"] }>(
+        "/api/v2/words/discover",
+        {}
+      );
+      if ((data.candidates ?? []).length === 0) {
+        appendLocalMessage(
+          "You've started everything in the packs! Paste new words, snap a photo, or just tell me what you heard."
+        );
+        return;
+      }
+      appendLocalMessage("", [{ type: "word_picker", candidates: data.candidates }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't find new words.");
     } finally {
       setLoading(false);
     }
@@ -695,8 +806,11 @@ export function ChatWindow() {
           },
         ]);
       }
+      sessionStats.current.reviewed += 1;
+      prefetchNext(widget.word_id);
       await sendMessage(
-        `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
+        `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
+        { background: true }
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reveal the answer.");
@@ -737,15 +851,24 @@ export function ChatWindow() {
       (m.widgets ?? []).some((w) => w.type === "onboarding_choice")
     );
     const hasStarted = visibleMessages.length > 1;
+    const addWords = { label: "Add words", onClick: () => sendMessage("I want to add some new words") };
+
+    // Queue empty: learning shouldn't dead-end. Offer fresh reservoir words
+    // or a boost-style early review instead of a Next word that no-ops.
+    if (dueNow === 0 && hasStarted && !onboardingShowing) {
+      return [
+        { label: "Learn new words", primary: true, onClick: learnNewWords },
+        { label: "Review ahead", onClick: () => serveNext(undefined, { ahead: true }) },
+        addWords,
+      ];
+    }
+
     const review = {
       label: hasStarted ? "Next word" : "Start review",
       primary: true,
       onClick: () => serveNext(),
     };
-    return [
-      ...(onboardingShowing && !hasStarted ? [] : [review]),
-      { label: "Add words", onClick: () => sendMessage("I want to add some new words") },
-    ];
+    return [...(onboardingShowing && !hasStarted ? [] : [review]), addWords];
   })();
 
   if (error && messages.length === 0) {
@@ -908,7 +1031,7 @@ export function ChatWindow() {
                     </div>
                   </div>
                   <div className="flex items-center justify-center gap-2.5 flex-wrap">
-                    {dueNow > 0 && (
+                    {dueNow > 0 ? (
                       <button
                         onClick={() => serveNext()}
                         disabled={loading}
@@ -916,16 +1039,28 @@ export function ChatWindow() {
                       >
                         Yalla, start review
                       </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={learnNewWords}
+                          disabled={loading}
+                          className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                        >
+                          Learn something new
+                        </button>
+                        <button
+                          onClick={() => serveNext(undefined, { ahead: true })}
+                          disabled={loading}
+                          className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                        >
+                          Review ahead
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={() => sendMessage("I want to add some new words")}
                       disabled={loading}
-                      className={cn(
-                        "rounded-full px-6 py-3 text-base font-medium shadow-sm border transition-colors disabled:opacity-50",
-                        dueNow > 0
-                          ? "bg-white border-gray-200 text-heading hover:bg-gray-50"
-                          : "bg-green-600 border-green-600 text-white hover:bg-green-700"
-                      )}
+                      className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
                     >
                       Add words
                     </button>
@@ -946,7 +1081,7 @@ export function ChatWindow() {
                 ))
               )}
             </AnimatePresence>
-            {(loading || checking) && (
+            {(loading || checking || commentaryPending) && (
               <TypingIndicator label={checking ? "Checking your answer..." : undefined} />
             )}
           </div>

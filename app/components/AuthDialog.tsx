@@ -162,7 +162,7 @@ export function AuthDialog() {
                     onChange={(e) => setEmail(e.target.value)}
                     required
                     autoFocus
-                    className="py-6 px-4 shadow-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900/20 focus:ring-offset-white focus:border-gray-900"
+                    className="py-6 px-4 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-gray-900"
                   />
                 </div>
                 {error && <p className="text-sm text-red-600">{error}</p>}
@@ -213,7 +213,7 @@ export function AuthDialog() {
                       required
                       autoFocus
                       minLength={6}
-                      className="py-6 px-4 shadow-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900/20 focus:ring-offset-white focus:border-gray-900"
+                      className="py-6 px-4 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-gray-900"
                     />
                   </div>
                 </div>

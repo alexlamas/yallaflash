@@ -4,6 +4,7 @@ import { QuizMC } from "./QuizMC";
 import { RecallInput } from "./RecallInput";
 import { ProduceCold } from "./ProduceCold";
 import { AddWordsPreview } from "./AddWordsPreview";
+import { WordPicker } from "./WordPicker";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { PackList } from "./PackList";
 import { ReviewVerdict } from "./ReviewVerdict";
@@ -14,6 +15,7 @@ export interface WidgetActions {
   onConfirmWords: (proposals: WordProposal[]) => void;
   onChooseOnboarding: (choice: "add_words" | "browse_packs") => void;
   onStartPack: (packId: string) => void;
+  onStartWords: (wordIds: string[]) => void;
 }
 
 export function WidgetRenderer({
@@ -44,6 +46,8 @@ export function WidgetRenderer({
       return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} />;
     case "add_words_preview":
       return <AddWordsPreview widget={widget} onConfirm={actions.onConfirmWords} answered={answered} />;
+    case "word_picker":
+      return <WordPicker widget={widget} onStartWords={actions.onStartWords} answered={answered} />;
     case "review_verdict":
       return <ReviewVerdict widget={widget} />;
     case "session_summary":

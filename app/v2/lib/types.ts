@@ -130,6 +130,12 @@ export type Widget =
       answer?: ReviewAnswer;
     }
   | { type: "add_words_preview"; proposals: WordProposal[] }
+  // Zero-due moment: fresh reservoir words (pack words the user hasn't
+  // started) offered for selection; confirming inserts progress rows.
+  | {
+      type: "word_picker";
+      candidates: Pick<V2Word, "id" | "arabizi" | "script" | "english" | "type">[];
+    }
   // Client-side only: rendered instantly from the deterministic grade, before
   // (and independent of) the tutor's commentary.
   | {

@@ -381,7 +381,7 @@ async function updateWordNote(
     .maybeSingle();
   if (readError) throw readError;
 
-  const existing = progress?.notes?.trim() ?? "";
+  const existing = (progress as { notes?: string | null } | null)?.notes?.trim() ?? "";
   const next = mode === "replace" || !existing ? trimmed : `${existing}\n${trimmed}`;
 
   const { error: writeError } = await ctx.supabase
@@ -390,9 +390,44 @@ async function updateWordNote(
       { user_id: ctx.userId, word_id: wordId, notes: next },
       { onConflict: "user_id,word_id" }
     );
-  if (writeError) throw writeError;
+  if (!writeError) {
+    return { result: { word_id: wordId, notes: next } };
+  }
 
-  return { result: { word_id: wordId, notes: next } };
+  // The notes column migration may not be applied yet (PostgREST rejects the
+  // unknown column). Fall back to word-level notes for user-owned words so
+  // the habit keeps working; pack words genuinely need the migration.
+  const columnMissing =
+    (writeError as { code?: string }).code === "PGRST204" || /notes/i.test(writeError.message ?? "");
+  if (!columnMissing) throw writeError;
+
+  const { data: word } = await ctx.supabase
+    .from("v2_words")
+    .select("user_id, notes")
+    .eq("id", wordId)
+    .maybeSingle();
+  if (word?.user_id === ctx.userId) {
+    const wordExisting = word.notes?.trim() ?? "";
+    const merged = mode === "replace" || !wordExisting ? trimmed : `${wordExisting}\n${trimmed}`;
+    const { error: fallbackError } = await ctx.supabase
+      .from("v2_words")
+      .update({ notes: merged })
+      .eq("id", wordId);
+    if (fallbackError) throw fallbackError;
+    return {
+      result: {
+        word_id: wordId,
+        notes: merged,
+        stored_on: "the word itself (progress-notes migration not applied yet)",
+      },
+    };
+  }
+  return {
+    result: {
+      error:
+        "Can't save notes on shared pack words until the v2_word_progress.notes migration runs (supabase/migrations/20260702_v2_word_notes.sql). Tell the user their note will stick once that's applied.",
+    },
+  };
 }
 
 function proposeWords(proposals: WordProposal[]): { result: unknown; widget?: Widget } {
