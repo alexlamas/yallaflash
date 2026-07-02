@@ -55,3 +55,26 @@ describe("normalize", () => {
     expect(normalize("  Ktir!! ")).toBe("ktir");
   });
 });
+
+describe("gradeDeterministic", () => {
+  const answer = { arabizi: "ktir", english: "a lot / very" };
+
+  it("decides MC instantly, both ways", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    expect(gradeDeterministic("easy", "a lot / very", answer)).toBe(true);
+    expect(gradeDeterministic("easy", "slowly", answer)).toBe(false);
+  });
+
+  it("decides exact typed recall instantly, defers synonyms", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    expect(gradeDeterministic("medium", "very", answer)).toBe(true);
+    expect(gradeDeterministic("medium", "loads", answer)).toBe(null);
+  });
+
+  it("decides cold production: exact yes, near-miss deferred, distant no", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    expect(gradeDeterministic("hard", "ktir", answer)).toBe(true);
+    expect(gradeDeterministic("hard", "kteer", answer)).toBe(null);
+    expect(gradeDeterministic("hard", "shway", answer)).toBe(false);
+  });
+});

@@ -302,6 +302,10 @@ export async function buildReviewWidget(
   word: { id: string; language_id: string; arabizi: string; script: string | null; english: string; memory_hook: string | null },
   tier: ReviewTier
 ): Promise<Widget> {
+  // Ground truth rides along (not rendered on the card) so the client can
+  // grade exact matches instantly instead of waiting on a round trip.
+  const answer = { arabizi: word.arabizi, english: word.english };
+
   if (tier === "hard") {
     const cue: ReviewCue = { english: word.english, memory_hook: word.memory_hook };
     return {
@@ -310,6 +314,7 @@ export async function buildReviewWidget(
       tier,
       prompt: `Type the arabizi for "${word.english}" -- no options, from memory.`,
       cue,
+      answer,
     };
   }
 
@@ -322,6 +327,7 @@ export async function buildReviewWidget(
       tier,
       prompt: `What does "${word.arabizi}" mean?`,
       cue,
+      answer,
     };
   }
 
@@ -333,6 +339,7 @@ export async function buildReviewWidget(
     prompt: `What does "${word.arabizi}" mean?`,
     cue,
     options: shuffle([word.english, ...distractors]),
+    answer,
   };
 }
 

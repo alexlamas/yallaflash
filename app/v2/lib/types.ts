@@ -77,6 +77,13 @@ export interface WordProposal {
   flagged_assumptions?: { field: string; options: Record<string, string> }[];
 }
 
+// The hidden side of a review card, embedded in the widget so the client
+// can grade deterministic cases instantly (no server round trip).
+export interface ReviewAnswer {
+  arabizi: string;
+  english: string;
+}
+
 // What's shown to the user as the "cue" for a review widget -- only the
 // fields relevant to that tier's direction of recall are populated.
 export interface ReviewCue {
@@ -101,6 +108,10 @@ export type Widget =
       prompt: string;
       cue: ReviewCue;
       options: string[];
+      // Ground truth for instant client-side grading -- never shown on the
+      // card. Optional: widgets persisted before this field existed lack it,
+      // and those fall back to server grading.
+      answer?: ReviewAnswer;
     }
   | {
       type: "recall_input";
@@ -108,6 +119,7 @@ export type Widget =
       tier: ReviewTier;
       prompt: string;
       cue: ReviewCue;
+      answer?: ReviewAnswer;
     }
   | {
       type: "produce_cold";
@@ -115,6 +127,7 @@ export type Widget =
       tier: ReviewTier;
       prompt: string;
       cue: ReviewCue;
+      answer?: ReviewAnswer;
     }
   | { type: "add_words_preview"; proposals: WordProposal[] }
   // Client-side only: rendered instantly from the deterministic grade, before

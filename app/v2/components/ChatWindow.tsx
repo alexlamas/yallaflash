@@ -14,6 +14,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ProgressPanel, type ProgressData } from "./ProgressPanel";
 import { TutorStrip } from "./TutorStrip";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
+import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
@@ -117,6 +118,9 @@ export function ChatWindow() {
   const [input, setInput] = useState("");
   const [placeholder, setPlaceholder] = useState("Message your tutor...");
   const [loading, setLoading] = useState(false);
+  // True only while an ambiguous answer waits on the model fallback --
+  // deterministic grades never set this.
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressKey, setProgressKey] = useState(0);
   const [progressData, setProgressData] = useState<ProgressData | null>(null);
@@ -275,11 +279,12 @@ export function ChatWindow() {
     }
   }
 
-  function appendLocalMessage(content: string, widgets: Widget[] = []) {
+  function appendLocalMessage(content: string, widgets: Widget[] = []): string {
+    const id = nextLocalId();
     setMessages((prev) => [
       ...prev,
       {
-        id: nextLocalId(),
+        id,
         conversation_id: conversationId ?? "",
         role: "assistant",
         content,
@@ -287,6 +292,35 @@ export function ChatWindow() {
         created_at: new Date().toISOString(),
       },
     ]);
+    return id;
+  }
+
+  // Updates the verdict widget in a local message after the background
+  // scheduling call returns (real next_review_date, authoritative script).
+  function patchVerdict(
+    messageId: string,
+    patch: Partial<Extract<Widget, { type: "review_verdict" }>>
+  ) {
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.id !== messageId) return message;
+        return {
+          ...message,
+          widgets: (message.widgets ?? []).map((w) =>
+            w.type === "review_verdict" ? { ...w, ...patch } : w
+          ),
+        };
+      })
+    );
+  }
+
+  // Looks a widget back up from its render key (`${message.id}:${index}`).
+  function widgetForKey(key: string): Widget | null {
+    const splitAt = key.lastIndexOf(":");
+    const messageId = key.slice(0, splitAt);
+    const index = Number(key.slice(splitAt + 1));
+    const message = messages.find((m) => m.id === messageId);
+    return message?.widgets?.[index] ?? null;
   }
 
   async function sendMessage(text: string) {
@@ -394,37 +428,88 @@ export function ChatWindow() {
     sendMessage(text);
   }
 
-  const baseActions: WidgetActions = {
-    onAnswer: async (wordId: string, tier: ReviewTier, submitted: string) => {
-      setError(null);
+  type AnswerResult = {
+    correct: boolean;
+    arabizi: string;
+    english: string;
+    script: string | null;
+    next_review_date: string;
+  };
+
+  // The whole point of this flow: multiple choice and exact matches are
+  // decidable right here, so the verdict renders in the same frame as the
+  // answer. The server round trip (SRS write + authoritative script) runs
+  // in the background and patches the schedule in when it lands. Only
+  // genuinely ambiguous answers (possible synonym, near-miss spelling) wait
+  // on the server, behind a visible CHECKING state.
+  async function answerReview(key: string, wordId: string, tier: ReviewTier, submitted: string) {
+    setError(null);
+    const widget = widgetForKey(key);
+    const review = widget && isReviewWidget(widget) ? widget : null;
+    const instant = review?.answer ? gradeDeterministic(tier, submitted, review.answer) : null;
+
+    if (instant !== null && review?.answer) {
+      recordAnswered(key);
+      const verdictId = appendLocalMessage("", [
+        {
+          type: "review_verdict",
+          correct: instant,
+          submitted,
+          arabizi: review.answer.arabizi,
+          english: review.answer.english,
+          script: review.cue?.script ?? null,
+          next_review_date: "",
+        },
+      ]);
       try {
-        const result = await fetchJSON<{
-          correct: boolean;
-          arabizi: string;
-          english: string;
-          script: string | null;
-          next_review_date: string;
-        }>("/api/v2/review/answer", { wordId, tier, submitted });
+        const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted });
         refreshProgress();
-        // Verdict renders instantly from the deterministic grade; the tutor's
-        // commentary (script/root color) follows asynchronously.
-        appendLocalMessage("", [
-          {
-            type: "review_verdict",
-            correct: result.correct,
-            submitted,
-            arabizi: result.arabizi,
-            english: result.english,
-            script: result.script,
-            next_review_date: result.next_review_date,
-          },
-        ]);
+        patchVerdict(verdictId, {
+          correct: result.correct,
+          script: result.script,
+          next_review_date: result.next_review_date,
+        });
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't grade that answer.");
+        setError(err instanceof Error ? err.message : "Couldn't save that review.");
       }
+      return;
+    }
+
+    // Ambiguous: the card stays up with a CHECKING state until the model
+    // fallback rules, then the verdict lands as one transition.
+    setChecking(true);
+    try {
+      const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted });
+      recordAnswered(key);
+      refreshProgress();
+      appendLocalMessage("", [
+        {
+          type: "review_verdict",
+          correct: result.correct,
+          submitted,
+          arabizi: result.arabizi,
+          english: result.english,
+          script: result.script,
+          next_review_date: result.next_review_date,
+        },
+      ]);
+      setChecking(false);
+      await sendMessage(
+        `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't grade that answer.");
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  const baseActions: WidgetActions = {
+    onAnswer: () => {
+      // Replaced per-widget in actionsFor -- answering needs the widget key.
     },
     onConfirmWords: async (proposals: WordProposal[]) => {
       setError(null);
@@ -469,12 +554,13 @@ export function ChatWindow() {
     },
   };
 
-  // Wrap actions so any interaction marks its widget as answered.
+  // Wrap actions so any interaction marks its widget as answered. Review
+  // answers manage their own answered timing (instant for deterministic
+  // grades, deferred past the CHECKING state for ambiguous ones).
   function actionsFor(key: string): WidgetActions {
     return {
       onAnswer: (wordId, tier, submitted) => {
-        recordAnswered(key);
-        baseActions.onAnswer(wordId, tier, submitted);
+        answerReview(key, wordId, tier, submitted);
       },
       onConfirmWords: (proposals) => {
         recordAnswered(key);
@@ -513,31 +599,52 @@ export function ChatWindow() {
     }
   }
 
+  // "Show answer" is deterministic by definition (an automatic miss), so the
+  // reveal is instant when the widget carries its answer; the SRS write and
+  // tutor hand-off run in the background.
   async function concedePending() {
     if (!pending || !isReviewWidget(pending.widget)) return;
     const widget = pending.widget;
     recordAnswered(pending.key);
     setError(null);
-    try {
-      const result = await fetchJSON<{
-        correct: boolean;
-        arabizi: string;
-        english: string;
-        script: string | null;
-        next_review_date: string;
-      }>("/api/v2/review/answer", { wordId: widget.word_id, tier: widget.tier, concede: true });
-      refreshProgress();
-      appendLocalMessage("", [
+
+    let verdictId: string | null = null;
+    if (widget.answer) {
+      verdictId = appendLocalMessage("", [
         {
           type: "review_verdict",
           correct: false,
           conceded: true,
-          arabizi: result.arabizi,
-          english: result.english,
-          script: result.script,
-          next_review_date: result.next_review_date,
+          arabizi: widget.answer.arabizi,
+          english: widget.answer.english,
+          script: widget.cue?.script ?? null,
+          next_review_date: "",
         },
       ]);
+    }
+
+    try {
+      const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", {
+        wordId: widget.word_id,
+        tier: widget.tier,
+        concede: true,
+      });
+      refreshProgress();
+      if (verdictId) {
+        patchVerdict(verdictId, { script: result.script, next_review_date: result.next_review_date });
+      } else {
+        appendLocalMessage("", [
+          {
+            type: "review_verdict",
+            correct: false,
+            conceded: true,
+            arabizi: result.arabizi,
+            english: result.english,
+            script: result.script,
+            next_review_date: result.next_review_date,
+          },
+        ]);
+      }
       await sendMessage(
         `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`
       );
@@ -628,7 +735,12 @@ export function ChatWindow() {
       // reset the widget's internal answered state).
       return (
         <motion.div key={j} initial={false} className={cn(isActiveWidget && "py-3")}>
-          <WidgetRenderer widget={widget} actions={actionsFor(key)} active={isActiveWidget} />
+          <WidgetRenderer
+            widget={widget}
+            actions={actionsFor(key)}
+            active={isActiveWidget}
+            answered={answeredKeys.has(key)}
+          />
         </motion.div>
       );
     });
@@ -793,10 +905,10 @@ export function ChatWindow() {
                 ))
               )}
             </AnimatePresence>
-            {loading && (
+            {(loading || checking) && (
               <div className="flex justify-center" aria-live="polite">
                 <span className="text-[11px] font-mono tracking-[0.14em] text-subtle animate-pulse">
-                  THINKING...
+                  {checking ? "CHECKING..." : "THINKING..."}
                 </span>
               </div>
             )}

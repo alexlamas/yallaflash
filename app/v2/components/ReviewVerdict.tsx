@@ -42,7 +42,9 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
           <div className="text-xs text-subtle">You said: {widget.submitted}</div>
         )}
         <div className="text-[11px] font-mono text-disabled pt-1">
-          next review {relativeTime(widget.next_review_date)}
+          {/* Instant verdicts render before the schedule write returns;
+              the real date is patched in a moment later. */}
+          next review {widget.next_review_date ? relativeTime(widget.next_review_date) : "..."}
         </div>
       </CardContent>
     </Card>

@@ -20,10 +20,14 @@ export function WidgetRenderer({
   widget,
   actions,
   active = false,
+  answered = false,
 }: {
   widget: Widget;
   actions: WidgetActions;
   active?: boolean;
+  // Durable answered state from the conversation (survives remounts and
+  // reloads) -- components must not rely on local state alone for this.
+  answered?: boolean;
 }) {
   switch (widget.type) {
     case "onboarding_choice":
@@ -39,7 +43,7 @@ export function WidgetRenderer({
     case "produce_cold":
       return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} />;
     case "add_words_preview":
-      return <AddWordsPreview widget={widget} onConfirm={actions.onConfirmWords} />;
+      return <AddWordsPreview widget={widget} onConfirm={actions.onConfirmWords} answered={answered} />;
     case "review_verdict":
       return <ReviewVerdict widget={widget} />;
     case "session_summary":

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { Widget, WordProposal } from "@/app/v2/lib/types";
@@ -8,25 +9,40 @@ import type { Widget, WordProposal } from "@/app/v2/lib/types";
 export function AddWordsPreview({
   widget,
   onConfirm,
+  answered = false,
 }: {
   widget: Extract<Widget, { type: "add_words_preview" }>;
   onConfirm: (proposals: WordProposal[]) => void;
+  // Durable confirmed state from the conversation -- local state alone
+  // resets on remount and left a live "Confirm and add" button behind.
+  answered?: boolean;
 }) {
-  const [confirmed, setConfirmed] = useState(false);
+  const [justConfirmed, setJustConfirmed] = useState(false);
+  const confirmed = answered || justConfirmed;
+  const count = widget.proposals.length;
 
   // Belt-and-suspenders against an empty staging call reaching the UI.
-  if (widget.proposals.length === 0) return null;
+  if (count === 0) return null;
+
+  // Once confirmed, the call-to-action collapses to a receipt.
+  if (confirmed) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50/70 px-4 py-2 text-sm text-green-900">
+        <Check className="h-4 w-4 text-green-700" />
+        Added {count} word{count === 1 ? "" : "s"}
+      </div>
+    );
+  }
 
   const handleConfirm = () => {
-    if (confirmed) return;
-    setConfirmed(true);
+    setJustConfirmed(true);
     onConfirm(widget.proposals);
   };
 
   return (
     <Card className="max-w-md">
       <CardContent className="p-4 space-y-3">
-        <div className="text-sm font-medium">{widget.proposals.length} word{widget.proposals.length === 1 ? "" : "s"} to add</div>
+        <div className="text-sm font-medium">{count} word{count === 1 ? "" : "s"} to add</div>
         <div className="space-y-2">
           {widget.proposals.map((p, i) => (
             <div key={i} className="text-sm border-b pb-2 last:border-b-0">
@@ -43,8 +59,8 @@ export function AddWordsPreview({
             </div>
           ))}
         </div>
-        <Button disabled={confirmed} onClick={handleConfirm} className="w-full">
-          {confirmed ? "Added" : "Confirm and add"}
+        <Button onClick={handleConfirm} className="w-full">
+          Confirm and add
         </Button>
       </CardContent>
     </Card>
