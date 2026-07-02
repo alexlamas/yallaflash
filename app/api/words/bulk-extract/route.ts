@@ -5,6 +5,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TransliterationService } from "@/app/services/transliterationService";
 import { checkAIUsage, incrementUsage } from "@/app/services/aiUsageService";
 
+// Vision extraction over a full menu photo can exceed Vercel's 10s default.
+export const maxDuration = 60;
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });

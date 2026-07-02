@@ -62,6 +62,55 @@ async function fetchJSON<T>(url: string, body?: unknown): Promise<T> {
   return data as T;
 }
 
+// Longest side Claude's vision handles well; bigger is wasted upload.
+const MAX_IMAGE_DIMENSION = 1600;
+// Vercel drops request bodies over ~4.5MB (Safari reports it as a bare
+// "Load failed"), and the extract API caps images at 5MB -- stay well under.
+const MAX_IMAGE_DATA_URL_BYTES = 3_500_000;
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Couldn't read that image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Phone photos are 5-12MB and often HEIC, which the API can't take either
+// way. Decode on-device, cap the longest side, and re-encode as JPEG,
+// stepping quality down until it fits. Small already-compatible images are
+// passed through untouched (keeps text screenshots crisp).
+async function downscaleImage(file: File): Promise<string> {
+  const original = await fileToDataUrl(file);
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("Couldn't read that image format -- try a JPG or PNG."));
+    el.src = original;
+  });
+
+  const fits =
+    original.length <= MAX_IMAGE_DATA_URL_BYTES &&
+    Math.max(img.width, img.height) <= MAX_IMAGE_DIMENSION &&
+    /^data:image\/(jpeg|png|webp|gif)/.test(original);
+  if (fits) return original;
+
+  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return original;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  for (const quality of [0.85, 0.7, 0.5]) {
+    const out = canvas.toDataURL("image/jpeg", quality);
+    if (out.length <= MAX_IMAGE_DATA_URL_BYTES) return out;
+  }
+  return canvas.toDataURL("image/jpeg", 0.35);
+}
+
 export function ChatWindow() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<V2Message[]>([]);
@@ -270,11 +319,13 @@ export function ChatWindow() {
     }
   }
 
-  function handleAttachImage(file: File | undefined) {
+  async function handleAttachImage(file: File | undefined) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setAttachedImage(String(reader.result));
-    reader.readAsDataURL(file);
+    try {
+      setAttachedImage(await downscaleImage(file));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't read that image.");
+    }
   }
 
   // Image-add path: V1's vision extractor parses the photo deterministically
@@ -320,7 +371,14 @@ export function ChatWindow() {
         [{ type: "add_words_preview", proposals }]
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't read that image.");
+      const message = err instanceof Error ? err.message : "Couldn't read that image.";
+      // Safari says "Load failed", Chrome "Failed to fetch" when the request
+      // itself dies (connection drop, body too large) -- neither helps a user.
+      setError(
+        /load failed|failed to fetch/i.test(message)
+          ? "Upload failed -- check your connection and try again."
+          : message
+      );
     } finally {
       setLoading(false);
     }
