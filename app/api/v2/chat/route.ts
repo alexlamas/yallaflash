@@ -101,16 +101,21 @@ export async function POST(req: Request) {
 
     const widgets: Widget[] = [];
     let finalText = "";
+    let lastStopReason: string | null = null;
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
       const response = await anthropic.messages.create({
         model: MODEL,
-        max_tokens: 1024,
+        // Must fit a propose_words call for a long pasted list -- at 1024 the
+        // tool_use block gets truncated and silently dropped, so the reply
+        // text lands without its widget.
+        max_tokens: 4096,
         system: TUTOR_SYSTEM_PROMPT,
         tools: TOOL_DEFINITIONS,
         messages,
       });
 
+      lastStopReason = response.stop_reason;
       const toolUseBlocks = response.content.filter(
         (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
       );
@@ -149,6 +154,12 @@ export async function POST(req: Request) {
       messages.push({ role: "user", content: toolResults });
 
       if (response.stop_reason !== "tool_use") break;
+    }
+
+    // A truncated response can silently drop an incomplete tool_use block --
+    // if that killed the widget, at least tell the user what to do about it.
+    if (lastStopReason === "max_tokens" && widgets.length === 0) {
+      finalText = `${finalText}\n\nThat ran longer than I can handle in one go -- try pasting fewer words at a time.`.trim();
     }
 
     await incrementUsage(user.id);

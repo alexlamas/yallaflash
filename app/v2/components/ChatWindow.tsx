@@ -870,7 +870,7 @@ export function ChatWindow() {
               onClick={() => fileInputRef.current?.click()}
               disabled={loading}
               aria-label="Add a photo"
-              className="mb-1 h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors disabled:opacity-40"
+              className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors disabled:opacity-40"
             >
               <ImagePlus className="h-[18px] w-[18px]" />
             </button>
@@ -899,7 +899,7 @@ export function ChatWindow() {
               onClick={handleSubmit}
               disabled={loading || (!input.trim() && !attachedImage)}
               aria-label="Send"
-              className="mb-0.5 h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
+              className="h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
             >
               <ArrowUp className="h-4 w-4" />
             </button>
