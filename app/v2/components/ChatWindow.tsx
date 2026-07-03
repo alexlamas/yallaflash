@@ -204,18 +204,25 @@ export function ChatWindow() {
   // Interactions are tracked here (not just inside widget components) so the
   // chips bar knows whether the newest interactive widget is still waiting.
   const [answeredKeys, setAnsweredKeys] = useState<Set<string>>(new Set());
+  // Ref mirror for in-flight async completions: a closure captured before an
+  // answer landed would otherwise see a stale set (a background reply once
+  // spliced itself ABOVE an already-answered card because of this).
+  const answeredKeysRef = useRef<Set<string>>(new Set());
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refreshProgress = () => setProgressKey((key) => key + 1);
-  const recordAnswered = (key: string) =>
-    setAnsweredKeys((prev) => {
-      const next = new Set(prev);
-      next.add(key);
-      return next;
-    });
+  const syncAnsweredKeys = (next: Set<string>) => {
+    answeredKeysRef.current = next;
+    setAnsweredKeys(next);
+  };
+  const recordAnswered = (key: string) => {
+    const next = new Set(answeredKeysRef.current);
+    next.add(key);
+    syncAnsweredKeys(next);
+  };
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -378,7 +385,7 @@ export function ChatWindow() {
         if (INTERACTIVE_TYPES.has(widget.type)) seeded.add(`${message.id}:${j}`);
       });
     });
-    setAnsweredKeys(seeded);
+    syncAnsweredKeys(seeded);
     setConversationId(id);
     setMessages(loaded);
     setLoading(false);
@@ -392,7 +399,7 @@ export function ChatWindow() {
       window.localStorage.setItem(STORAGE_KEY, data.conversationId);
       setConversationId(data.conversationId);
       setMessages([data.message]);
-      setAnsweredKeys(new Set());
+      syncAnsweredKeys(new Set());
       prefetchRef.current = null;
       hintedRef.current.clear();
       sessionStats.current = { reviewed: 0, correct: 0 };
@@ -490,7 +497,7 @@ export function ChatWindow() {
             const widgets = prev[i].widgets ?? [];
             const j = widgets.findIndex((w) => isReviewWidget(w));
             if (j === -1) continue;
-            if (!answeredKeys.has(`${prev[i].id}:${j}`)) {
+            if (!answeredKeysRef.current.has(`${prev[i].id}:${j}`)) {
               const copy = [...prev];
               copy.splice(i, 0, data.message);
               return copy;

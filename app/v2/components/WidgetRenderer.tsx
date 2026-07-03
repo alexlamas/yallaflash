@@ -41,11 +41,11 @@ export function WidgetRenderer({
     case "word_card":
       return <WordCard word={widget.word} imageUrl={widget.image_url} active={active} />;
     case "quiz_mc":
-      return <QuizMC widget={widget} onAnswer={actions.onAnswer} active={active} />;
+      return <QuizMC widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
     case "recall_input":
-      return <RecallInput widget={widget} onAnswer={actions.onAnswer} active={active} />;
+      return <RecallInput widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
     case "produce_cold":
-      return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} />;
+      return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
     case "add_words_preview":
       return <AddWordsPreview widget={widget} onConfirm={actions.onConfirmWords} answered={answered} />;
     case "word_picker":

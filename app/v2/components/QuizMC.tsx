@@ -13,22 +13,27 @@ export function QuizMC({
   widget,
   onAnswer,
   active = false,
+  answered = false,
 }: {
   widget: QuizMCWidget;
   onAnswer: (wordId: string, tier: QuizMCWidget["tier"], submitted: string) => void;
   active?: boolean;
+  // Durable answered state from the conversation -- local state resets on
+  // remount, which once brought an old card back to life.
+  answered?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
+  const done = answered || selected !== null;
 
   const handleSelect = (option: string) => {
-    if (selected) return;
+    if (done) return;
     setSelected(option);
     onAnswer(widget.word_id, widget.tier, option);
   };
 
   // Number keys pick options while this card is the active one.
   useEffect(() => {
-    if (!active || selected) return;
+    if (!active || done) return;
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
@@ -63,7 +68,7 @@ export function QuizMC({
                 // a green highlight here would imply "correct" prematurely.
                 selected === option && "border-gray-400 bg-gray-50"
               )}
-              disabled={selected !== null}
+              disabled={done}
               onClick={() => handleSelect(option)}
             >
               {active && (

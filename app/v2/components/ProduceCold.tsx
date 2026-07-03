@@ -14,16 +14,21 @@ export function ProduceCold({
   widget,
   onAnswer,
   active = false,
+  answered = false,
 }: {
   widget: ProduceColdWidget;
   onAnswer: (wordId: string, tier: ProduceColdWidget["tier"], submitted: string) => void;
   active?: boolean;
+  // Durable answered state -- local state resets on remount, which once
+  // brought an old card back to life with a live input.
+  answered?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const done = answered || submitted;
 
   const handleSubmit = () => {
-    if (submitted || !value.trim()) return;
+    if (done || !value.trim()) return;
     setSubmitted(true);
     onAnswer(widget.word_id, widget.tier, value.trim());
   };
@@ -39,14 +44,14 @@ export function ProduceCold({
         <div className="flex gap-2">
           <Input
             value={value}
-            disabled={submitted}
+            disabled={done}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder="Arabizi, from memory..."
             autoFocus={active}
           />
           <Button
-            disabled={submitted || !value.trim()}
+            disabled={done || !value.trim()}
             onClick={handleSubmit}
             className="bg-green-600 hover:bg-green-700"
           >
