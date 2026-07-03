@@ -9,11 +9,15 @@ import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/li
 import type { Widget } from "@/app/v2/lib/types";
 
 // The tool loop makes up to MAX_TOOL_ITERATIONS sequential Claude calls;
-// Vercel's default 10s function limit is not enough for that.
-export const maxDuration = 60;
+// Vercel's default 10s function limit is not enough for that. 300 is the
+// Pro ceiling -- Vercel clamps to the plan's max, so this is safe on Hobby.
+export const maxDuration = 300;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = "claude-opus-4-8";
+// Sonnet: the deterministic layer owns correctness (grading, scheduling,
+// cards), so the tutor's job -- framing, parsing, tool calls -- doesn't
+// need Opus, and Sonnet responds noticeably faster.
+const MODEL = "claude-sonnet-5";
 const MAX_TOOL_ITERATIONS = 5;
 
 const ONBOARDING_GREETING =
@@ -91,7 +95,24 @@ export async function POST(req: Request) {
       .eq("user_id", user.id)
       .maybeSingle();
     const instructions = settings?.tutor_instructions?.trim() || DEFAULT_TUTOR_INSTRUCTIONS;
-    const system = `${TUTOR_SYSTEM_PROMPT}\n\nUSER'S STANDING INSTRUCTIONS (user-visible and editable -- follow them):\n${instructions}`;
+    // Prompt caching: tools + the static prompt + the per-user instructions
+    // are stable across turns, so cache breakpoints cut latency (and cost)
+    // on every message after the first.
+    // Cast: SDK 0.32.x predates the cache_control fields in its types; the
+    // API itself accepts them.
+    const system = [
+      { type: "text", text: TUTOR_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      {
+        type: "text",
+        text: `USER'S STANDING INSTRUCTIONS (user-visible and editable -- follow them):\n${instructions}`,
+        cache_control: { type: "ephemeral" },
+      },
+    ] as unknown as Anthropic.TextBlockParam[];
+    const tools: Anthropic.Tool[] = TOOL_DEFINITIONS.map((tool, i) =>
+      i === TOOL_DEFINITIONS.length - 1
+        ? { ...tool, cache_control: { type: "ephemeral" as const } }
+        : tool
+    );
 
     // The Anthropic API requires the message list to start with a "user"
     // turn and strictly alternate roles. The deterministic bootstrap
@@ -136,7 +157,7 @@ export async function POST(req: Request) {
         // text lands without its widget.
         max_tokens: 4096,
         system,
-        tools: TOOL_DEFINITIONS,
+        tools,
         messages,
       });
 

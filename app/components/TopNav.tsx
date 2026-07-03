@@ -171,13 +171,16 @@ export function TopNav() {
             >
               Home
             </NavLink>
-            <NavLink
-              active={pathname === "/chat"}
-              icon={ChatCircle}
-              onClick={() => handleNavigate("/chat")}
-            >
-              Chat
-            </NavLink>
+            {/* V2 chat is admin-gated while it bakes. */}
+            {isAdmin && (
+              <NavLink
+                active={pathname === "/chat"}
+                icon={ChatCircle}
+                onClick={() => handleNavigate("/chat")}
+              >
+                Chat
+              </NavLink>
+            )}
             <NavLink
               active={pathname === "/my-words"}
               icon={CardsThree}

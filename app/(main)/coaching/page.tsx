@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
+import { hasV2Access } from "@/app/v2/lib/access";
 import { DEFAULT_TUTOR_INSTRUCTIONS } from "@/app/v2/lib/tutorPrompt";
 import { InstructionsEditor } from "@/app/v2/components/InstructionsEditor";
 
@@ -13,6 +14,7 @@ export default async function CoachingPage() {
   const supabase = await createClient(cookies());
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/");
+  if (!(await hasV2Access(supabase, user.id))) redirect("/");
 
   const { data: settings } = await supabase
     .from("v2_user_settings")

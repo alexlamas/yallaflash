@@ -4,7 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, ImagePlus, LogOut, RotateCcw, SlidersHorizontal, Table2, Trees, Undo2, X } from "lucide-react";
+import {
+  ArchiveRestore,
+  ArrowUp,
+  FlaskConical,
+  ImagePlus,
+  LogOut,
+  RotateCcw,
+  SlidersHorizontal,
+  Table2,
+  Trees,
+  Undo2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -122,6 +134,8 @@ async function downscaleImage(file: File): Promise<string> {
 
 // V2's app menu, hanging off the logo: the chat IS the app, so it carries
 // its own session controls instead of borrowing V1's header.
+const SNAPSHOT_KEY = "yallaflash_v2_snapshot";
+
 function AccountMenu({
   triggerClassName,
   onNewSession,
@@ -129,6 +143,38 @@ function AccountMenu({
   triggerClassName?: string;
   onNewSession?: () => void;
 }) {
+  // Admin test tools: become a brand-new user (snapshot saved locally),
+  // then restore the real data afterwards.
+  async function testAsNewUser() {
+    const res = await fetch("/api/v2/dev/reset", { method: "POST" });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.snapshot) {
+      window.alert("Reset failed -- nothing was changed.");
+      return;
+    }
+    window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(data.snapshot));
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
+  }
+
+  async function restoreMyData() {
+    const raw = window.localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) {
+      window.alert("No snapshot found in this browser.");
+      return;
+    }
+    const res = await fetch("/api/v2/dev/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ snapshot: JSON.parse(raw) }),
+    });
+    if (!res.ok) {
+      window.alert("Restore failed -- your snapshot is still saved in this browser.");
+      return;
+    }
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
+  }
   async function handleLogout() {
     await createClient().auth.signOut();
     window.location.href = "/";
@@ -168,6 +214,12 @@ function AccountMenu({
           <Link href="/" className="flex items-center gap-2">
             <Undo2 className="h-4 w-4 text-gray-500" /> Old app
           </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={testAsNewUser} className="flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-gray-500" /> Test as new user
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={restoreMyData} className="flex items-center gap-2">
+          <ArchiveRestore className="h-4 w-4 text-gray-500" /> Restore my data
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleLogout} className="flex items-center gap-2">
           <LogOut className="h-4 w-4 text-gray-500" /> Log out
@@ -717,13 +769,16 @@ export function ChatWindow() {
     onConfirmWords: async (proposals: WordProposal[]) => {
       setError(null);
       try {
-        const result = await fetchJSON<{ words: { arabizi: string; english: string }[] }>(
+        const result = await fetchJSON<{ words: { arabizi: string; english: string }[]; skipped?: number }>(
           "/api/v2/words/confirm",
           { proposals }
         );
         const summary = (result.words ?? []).map((w) => `${w.arabizi} = ${w.english}`).join(", ");
+        const skippedNote = result.skipped
+          ? ` (${result.skipped} skipped -- already in the user's collection; mention this briefly)`
+          : "";
         refreshProgress();
-        await sendMessage(`[WORDS CONFIRMED] ${summary}`, { background: true });
+        await sendMessage(`[WORDS CONFIRMED] ${summary || "none added"}${skippedNote}`, { background: true });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save those words.");
       }

@@ -24,10 +24,30 @@ export async function POST(req: Request) {
 
     const languageId = await getDefaultLanguageId(supabase);
 
+    // Duplicate guard: skip words the user is already learning, matched by
+    // content -- the V1 migration created personal copies of reservoir
+    // words, so id checks alone don't catch twins.
+    const { data: existing } = await supabase
+      .from("v2_word_progress")
+      .select("v2_words!inner(arabizi, english)")
+      .eq("user_id", user.id);
+    const norm = (s: string) => s.toLowerCase().trim();
+    const known = new Set(
+      (existing ?? []).map((row) => {
+        const w = row.v2_words as unknown as { arabizi: string; english: string };
+        return `${norm(w.arabizi)}|${norm(w.english)}`;
+      })
+    );
+    const fresh = data.proposals.filter((p) => !known.has(`${norm(p.arabizi)}|${norm(p.english)}`));
+    const skipped = data.proposals.length - fresh.length;
+    if (fresh.length === 0) {
+      return NextResponse.json({ words: [], skipped });
+    }
+
     const { data: inserted, error: insertError } = await supabase
       .from("v2_words")
       .insert(
-        data.proposals.map((p) => ({
+        fresh.map((p) => ({
           language_id: languageId,
           arabizi: p.arabizi,
           english: p.english,
@@ -53,7 +73,7 @@ export async function POST(req: Request) {
     );
     if (progressError) throw progressError;
 
-    return NextResponse.json({ words: inserted });
+    return NextResponse.json({ words: inserted, skipped });
   } catch (error) {
     return handleApiError(error, "Failed to save words");
   }

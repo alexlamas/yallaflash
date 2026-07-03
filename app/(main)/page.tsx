@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 import { useWords } from "../contexts/WordsContext";
 import { useProfile } from "../contexts/ProfileContext";
+import { useUserRoles } from "../hooks/useUserRoles";
 import { LandingV2 } from "@/app/v2/components/Landing";
 import { Dashboard } from "../components/Dashboard";
 
@@ -13,14 +14,16 @@ function HomeContent() {
   const { session, isLoading: isAuthLoading } = useAuth();
   const { isLoading: isWordsLoading } = useWords();
   const { onboardingCompleted, isLoading: isProfileLoading } = useProfile();
+  const { isAdmin, isLoading: isRolesLoading } = useUserRoles();
 
-  // New users go straight to the chat tutor -- its onboarding widget replaces
-  // the old multi-step wizard (which still exists at /onboarding for now).
+  // V2 chat onboarding is admin-gated while it bakes; everyone else keeps
+  // the V1 wizard flow untouched.
   useEffect(() => {
-    if (!isAuthLoading && !isProfileLoading && session && !onboardingCompleted) {
-      router.replace("/chat");
+    if (isAuthLoading || isProfileLoading || isRolesLoading) return;
+    if (session && !onboardingCompleted) {
+      router.replace(isAdmin ? "/chat" : "/onboarding");
     }
-  }, [isAuthLoading, isProfileLoading, session, onboardingCompleted, router]);
+  }, [isAuthLoading, isProfileLoading, isRolesLoading, isAdmin, session, onboardingCompleted, router]);
 
   if (isAuthLoading || (session && isProfileLoading)) {
     return null;
