@@ -47,6 +47,27 @@ export function handleApiError(error: unknown, defaultMessage: string): NextResp
   );
 }
 
+// Supabase (PostgREST) failures are thrown as plain objects, not Error
+// instances -- String() them and you get "[object Object]". Dig the message
+// out of whatever shape arrives.
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const maybe = error as { message?: unknown; details?: unknown; code?: unknown };
+    if (maybe.message) {
+      return [maybe.message, maybe.details, maybe.code && `(${maybe.code})`]
+        .filter(Boolean)
+        .join(" ");
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
 export function validateRequest<T extends Record<string, unknown>>(
   data: unknown,
   requiredFields: (keyof T)[]

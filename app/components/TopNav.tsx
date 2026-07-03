@@ -153,6 +153,7 @@ export function TopNav() {
               <div className="md:hidden absolute inset-0 flex items-center justify-center pointer-events-none">
                 <span className="text-sm font-medium text-heading flex items-center gap-1.5">
                   {pathname === "/" && <><HouseSimple className="h-4 w-4" />Home</>}
+                  {pathname === "/chat" && <><ChatCircle className="h-4 w-4" />Chat</>}
                   {pathname === "/my-words" && <><CardsThree className="h-4 w-4" />My words</>}
                   {pathname.startsWith("/play") && <><GameController className="h-4 w-4" />Play</>}
                   {pathname === "/review" && <><PlayCircle className="h-4 w-4" />Review</>}
@@ -170,6 +171,16 @@ export function TopNav() {
             >
               Home
             </NavLink>
+            {/* V2 chat is admin-gated while it bakes. */}
+            {isAdmin && (
+              <NavLink
+                active={pathname === "/chat"}
+                icon={ChatCircle}
+                onClick={() => handleNavigate("/chat")}
+              >
+                Chat
+              </NavLink>
+            )}
             <NavLink
               active={pathname === "/my-words"}
               icon={CardsThree}

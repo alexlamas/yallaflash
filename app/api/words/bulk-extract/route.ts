@@ -5,11 +5,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { TransliterationService } from "@/app/services/transliterationService";
 import { checkAIUsage, incrementUsage } from "@/app/services/aiUsageService";
 
+// Vision extraction over a full menu photo can exceed Vercel's 10s default.
+export const maxDuration = 60;
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "claude-sonnet-5";
 const BULK_USAGE_COST = 2; // Bulk import counts as 2 AI uses
 const MAX_TEXT_LENGTH = 500;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -159,7 +162,6 @@ No additional text or explanations. Just the JSON array.`;
       model: MODEL,
       max_tokens: 2000,
       messages: [{ role: "user", content }],
-      temperature: 0.3,
     });
 
     if (!message.content || message.content.length === 0) {
