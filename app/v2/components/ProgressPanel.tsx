@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CedarForest } from "./CedarForest";
 import type { ProgressState } from "@/app/v2/lib/types";
 
@@ -82,7 +83,29 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
   }, []);
 
   if (!data) {
-    return <div className="p-4 text-sm text-subtle">Loading progress...</div>;
+    // Structural skeleton mirroring the three panel sections, so the sheet
+    // opens onto the panel's shape instead of a bare loading string.
+    return (
+      <div className="flex flex-col h-full p-3 gap-3" aria-busy="true" aria-label="Loading progress">
+        <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-4 w-10" />
+          </div>
+          <Skeleton className="h-2 w-full rounded-full" />
+          <Skeleton className="h-20 w-full rounded-lg" />
+        </div>
+        <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4 space-y-2">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-7 w-28" />
+        </div>
+        <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4 space-y-2.5">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-4 w-full" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const total = data.counts.new + data.counts.learning + data.counts.learned;
@@ -127,7 +150,7 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
           </div>
           <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
             <div
-              className="h-full bg-green-500 rounded-full transition-all duration-700"
+              className="h-full bg-green-500 rounded-full transition-[width] duration-700"
               style={{ width: `${percent}%` }}
             />
           </div>
@@ -203,7 +226,7 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
                 <span className="font-medium text-heading truncate w-[72px] shrink-0">{word.arabizi}</span>
                 {retention === null ? (
                   <>
-                    <span className="flex-1 text-xs text-subtle truncate blur-[3px] hover:blur-none transition-all select-none">
+                    <span className="flex-1 text-xs text-subtle truncate blur-[3px] hover:blur-none transition-[filter] select-none">
                       {word.english}
                     </span>
                     <span className="font-mono text-[10px] text-disabled border border-gray-200 rounded px-1.5 py-0.5">
@@ -212,7 +235,7 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 min-w-0 truncate text-xs text-subtle blur-[3px] hover:blur-none transition-all select-none">
+                    <span className="flex-1 min-w-0 truncate text-xs text-subtle blur-[3px] hover:blur-none transition-[filter] select-none">
                       {word.english}
                     </span>
                     <SignalBars retention={retention} />

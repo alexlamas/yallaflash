@@ -41,7 +41,7 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
           <img
             src={widget.image_url}
             alt=""
-            className="h-20 w-20 rounded-xl object-cover mx-auto"
+            className="h-20 w-20 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
           />
         )}
         {widget.script && (

@@ -229,6 +229,13 @@ function AccountMenu({
   );
 }
 
+// Staggered hero entrance: each block rises in ~70ms after the previous one,
+// so the queue count, copy, and actions read as a sequence rather than one slab.
+const heroItem = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.25, ease: "easeOut" } },
+} as const;
+
 export function ChatWindow() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<V2Message[]>([]);
@@ -1151,7 +1158,7 @@ export function ChatWindow() {
           <AccountMenu triggerClassName="h-8 w-8" onNewSession={startNewSession} />
           <div className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden">
             <div
-              className="h-full bg-green-500 rounded-full transition-all duration-700"
+              className="h-full bg-green-500 rounded-full transition-[width] duration-700"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -1196,17 +1203,22 @@ export function ChatWindow() {
               {showHero ? (
                 <motion.div
                   key="session-hero"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -24, scale: 0.97 }}
-                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  initial="hidden"
+                  animate="visible"
+                  exit={{ opacity: 0, y: -16, transition: { duration: 0.18, ease: "easeOut" } }}
+                  variants={{ visible: { transition: { staggerChildren: 0.07 } } }}
                   className="text-center space-y-6 py-8"
                 >
-                  <div className="text-[10px] font-mono tracking-[0.2em] text-subtle">
+                  <motion.div
+                    variants={heroItem}
+                    className="text-[10px] font-mono tracking-[0.2em] text-subtle"
+                  >
                     REVIEW QUEUE
-                  </div>
-                  <div>
-                    <div className="font-title text-7xl text-heading leading-none">{dueNow}</div>
+                  </motion.div>
+                  <motion.div variants={heroItem}>
+                    <div className="font-title text-7xl text-heading leading-none tabular-nums">
+                      {dueNow}
+                    </div>
                     <div className="text-sm text-subtle mt-2">
                       {dueNow === 0
                         ? "all clear -- nothing due right now"
@@ -1214,13 +1226,16 @@ export function ChatWindow() {
                         ? "word due now"
                         : "words due now"}
                     </div>
-                  </div>
-                  <div className="flex items-center justify-center gap-2.5 flex-wrap">
+                  </motion.div>
+                  <motion.div
+                    variants={heroItem}
+                    className="flex items-center justify-center gap-2.5 flex-wrap"
+                  >
                     {dueNow > 0 ? (
                       <button
                         onClick={() => serveNext()}
                         disabled={loading}
-                        className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                        className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                       >
                         Yalla, start review
                       </button>
@@ -1229,14 +1244,14 @@ export function ChatWindow() {
                         <button
                           onClick={learnNewWords}
                           disabled={loading}
-                          className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                          className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                         >
                           Learn something new
                         </button>
                         <button
                           onClick={() => serveNext(undefined, { ahead: true })}
                           disabled={loading}
-                          className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                          className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                         >
                           Review ahead
                         </button>
@@ -1245,11 +1260,11 @@ export function ChatWindow() {
                     <button
                       onClick={() => sendMessage("I want to add some new words")}
                       disabled={loading}
-                      className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-colors disabled:opacity-50"
+                      className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                     >
                       Add words
                     </button>
-                  </div>
+                  </motion.div>
                 </motion.div>
               ) : (
                 activeMessages.map((message, i) => (
@@ -1258,7 +1273,7 @@ export function ChatWindow() {
                     layout
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -24, scale: 0.97 }}
+                    exit={{ opacity: 0, y: -16, transition: { duration: 0.18, ease: "easeOut" } }}
                     transition={{ duration: 0.25, ease: "easeOut" }}
                   >
                     {renderMessage(message, activeStart + i, true)}
@@ -1289,7 +1304,7 @@ export function ChatWindow() {
                   key={chip.label}
                   onClick={chip.onClick}
                   className={cn(
-                    "rounded-full px-4 py-2 text-sm font-medium border shadow-sm transition-colors",
+                    "rounded-full px-4 py-2 text-sm font-medium border shadow-sm transition-[background-color,border-color,color,transform] active:scale-[0.96]",
                     chip.primary
                       ? "bg-green-600 border-green-600 text-white hover:bg-green-700"
                       : "bg-white border-gray-200 text-heading hover:bg-gray-50"
@@ -1315,14 +1330,14 @@ export function ChatWindow() {
               <button
                 onClick={() => setAttachedImage(null)}
                 aria-label="Remove photo"
-                className="h-6 w-6 rounded-full border border-gray-200 bg-white flex items-center justify-center text-gray-400 hover:text-heading"
+                className="relative h-6 w-6 rounded-full border border-gray-200 bg-white flex items-center justify-center text-gray-400 hover:text-heading transition-colors before:absolute before:-inset-2 before:content-['']"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
 
-          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-2xl border border-gray-200 bg-white shadow-sm px-3 py-2 transition-shadow focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
+          <div className="max-w-2xl mx-auto flex items-end gap-2 rounded-2xl border border-gray-200 bg-white shadow-sm px-3 py-2 transition-[box-shadow,border-color] focus-within:border-green-400 focus-within:ring-2 focus-within:ring-green-500/20">
             <input
               ref={fileInputRef}
               type="file"
@@ -1337,7 +1352,7 @@ export function ChatWindow() {
               onClick={() => fileInputRef.current?.click()}
               disabled={loading}
               aria-label="Add a photo"
-              className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors disabled:opacity-40"
+              className="h-9 w-9 shrink-0 rounded-full flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition-[background-color,color,transform] active:scale-[0.96] disabled:opacity-40"
             >
               <ImagePlus className="h-[18px] w-[18px]" />
             </button>
@@ -1366,7 +1381,7 @@ export function ChatWindow() {
               onClick={handleSubmit}
               disabled={loading || (!input.trim() && !attachedImage)}
               aria-label="Send"
-              className="h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
+              className="h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-[background-color,transform] active:scale-[0.96] hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
             >
               <ArrowUp className="h-4 w-4" />
             </button>
