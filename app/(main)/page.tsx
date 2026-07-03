@@ -6,7 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useWords } from "../contexts/WordsContext";
 import { useProfile } from "../contexts/ProfileContext";
 import { useUserRoles } from "../hooks/useUserRoles";
-import { LandingV2 } from "@/app/v2/components/Landing";
+import { LandingPage } from "../components/LandingPage";
 import { Dashboard } from "../components/Dashboard";
 
 function HomeContent() {
@@ -29,10 +29,12 @@ function HomeContent() {
     return null;
   }
 
-  // Show landing page for non-authenticated users. V2 memory-app positioning
-  // supersedes the old course-style LandingPage (and its hero-copy A/B test).
+  // Show landing page for non-authenticated users. The V1 landing (and its
+  // hero-copy A/B test) stays live for the public while V2 bakes behind the
+  // admin gate; the V2 landing lives in app/v2/components/Landing.tsx,
+  // unwired, for when it's time.
   if (!session) {
-    return <LandingV2 />;
+    return <LandingPage />;
   }
 
   // Redirect to onboarding if not completed (don't render anything while redirecting)
