@@ -5,19 +5,22 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const MODEL = "claude-sonnet-4-20250514";
+// claude-sonnet-4-20250514 is deprecated and returns 404 not_found for this
+// key. claude-sonnet-5 is its documented drop-in replacement; it rejects
+// non-default sampling params, so temperature is gone -- prompt wording now
+// carries the creativity/variety instruction instead.
+const MODEL = "claude-sonnet-5";
 
 export class ClaudeService {
-  private static async createMessage(prompt: string, temperature = 0.7) {
+  private static async createMessage(prompt: string) {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error("ANTHROPIC_API_KEY is not configured");
     }
-    
+
     const message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1000,
       messages: [{ role: "user", content: prompt }],
-      temperature,
     });
     
     if (!message.content || message.content.length === 0) {
@@ -138,7 +141,7 @@ Return ONLY a JSON object with this exact structure:
 No additional text or explanations. Just the JSON.`;
       }
 
-      const response = await this.createMessage(prompt, 1.0);
+      const response = await this.createMessage(prompt);
       
       try {
         const parsed = JSON.parse(response);

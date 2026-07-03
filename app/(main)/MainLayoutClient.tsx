@@ -41,14 +41,16 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Hide nav on onboarding page
-  const isOnboarding = pathname === "/onboarding";
+  // Immersive pages render fullscreen without the top nav. /words is part
+  // of the V2 shell and brings its own header.
+  const isImmersive =
+    pathname === "/onboarding" || pathname === "/chat" || pathname === "/words" || pathname === "/coaching";
 
   return (
     <>
       <ServiceWorkerRegistration />
-      {!isOnboarding && <TopNav />}
-      <main className={isOnboarding ? "" : "pt-16"}>{children}</main>
+      {!isImmersive && <TopNav />}
+      <main className={isImmersive ? "" : "pt-16"}>{children}</main>
       <OfflineIndicator />
     </>
   );

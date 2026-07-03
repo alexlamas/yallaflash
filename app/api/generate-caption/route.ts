@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     const contextLine = context ? `\nAdditional instructions: ${context}` : "";
 
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-5",
       max_tokens: 300,
       messages: [
         {
