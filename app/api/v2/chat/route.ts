@@ -167,7 +167,15 @@ export async function POST(req: Request) {
 
     await incrementUsage(user.id);
 
-    const assistantMessage = await insertMessage(supabase, conversationId, "assistant", finalText, widgets);
+    // Hint-leak guard: while a served card is unanswered, a word_card for
+    // that word (e.g. from get_word_detail during a hint) would reveal the
+    // hidden side. Strip it deterministically -- prompts alone don't hold.
+    const openCardWordId = findOpenCardWordId(rows);
+    const safeWidgets = widgets.filter(
+      (w) => !(w.type === "word_card" && openCardWordId && w.word.id === openCardWordId)
+    );
+
+    const assistantMessage = await insertMessage(supabase, conversationId, "assistant", finalText, safeWidgets);
     return NextResponse.json({ conversationId, message: assistantMessage });
   } catch (error) {
     // V2 is in active development for personal use: log the real error to
@@ -176,6 +184,23 @@ export async function POST(req: Request) {
     console.error("[v2/chat]", error);
     return NextResponse.json({ error: `Chat failed: ${errorMessage(error)}` }, { status: 500 });
   }
+}
+
+// The word on the table: the most recent [SERVED] card with no later
+// [REVIEW RESULT] for the same word.
+function findOpenCardWordId(rows: { role: string; content: string }[]): string | null {
+  const answered = new Set<string>();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const content = rows[i].content;
+    if (content.startsWith("[REVIEW RESULT]")) {
+      const match = content.match(/word_id=(\S+)/);
+      if (match) answered.add(match[1]);
+    } else if (content.startsWith("[SERVED]")) {
+      const match = content.match(/word_id=(\S+)/);
+      if (match) return answered.has(match[1]) ? null : match[1];
+    }
+  }
+  return null;
 }
 
 async function createConversation(

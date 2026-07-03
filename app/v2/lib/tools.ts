@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import type { DueWord, ReviewCue, ReviewTier, Widget, WordProposal } from "./types";
 
 export interface ToolContext {
@@ -81,6 +82,59 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "regrade_review",
+    description:
+      "Overturn the most recent grade on a word when the user contests it and their case is fair (e.g. an accepted alternate spelling was marked wrong). Recomputes the schedule deterministically from the word's current SRS state with the corrected outcome. Say plainly what you changed. Never regrade unprompted.",
+    input_schema: {
+      type: "object",
+      properties: {
+        word_id: { type: "string" },
+        correct: { type: "boolean", description: "The corrected outcome" },
+      },
+      required: ["word_id", "correct"],
+    },
+  },
+  {
+    name: "reschedule_word",
+    description:
+      "Set when a word comes up next -- 'test me on this tomorrow', 'push this back a week', or 0 hours to make it due right now (a boost). The SRS state is otherwise untouched.",
+    input_schema: {
+      type: "object",
+      properties: {
+        word_id: { type: "string" },
+        hours_from_now: { type: "number", description: "0 = due immediately" },
+      },
+      required: ["word_id", "hours_from_now"],
+    },
+  },
+  {
+    name: "update_word",
+    description:
+      "Edit a word the user owns (their custom words): fix arabizi spelling, script, english, type, or memory_hook. Shared pack words can't be edited -- offer to save context in the word's note instead. Confirm the exact change with the user before calling unless they've already spelled it out.",
+    input_schema: {
+      type: "object",
+      properties: {
+        word_id: { type: "string" },
+        arabizi: { type: "string" },
+        script: { type: "string" },
+        english: { type: "string" },
+        type: { type: "string" },
+        memory_hook: { type: "string" },
+      },
+      required: ["word_id"],
+    },
+  },
+  {
+    name: "delete_word",
+    description:
+      "Stop learning a word: removes it from the user's review queue (and deletes the word entirely if it's their own custom word). Destructive -- only call after the user has clearly asked for or agreed to the removal in this conversation.",
+    input_schema: {
+      type: "object",
+      properties: { word_id: { type: "string" } },
+      required: ["word_id"],
+    },
+  },
+  {
     name: "propose_words",
     description:
       "Stage parsed vocabulary as a preview widget for the user to confirm. Does not write to the database -- confirmation happens outside you.",
@@ -141,6 +195,14 @@ export async function executeTool(
         String(input.note ?? ""),
         input.mode === "replace" ? "replace" : "append"
       );
+    case "regrade_review":
+      return regradeReview(ctx, String(input.word_id ?? ""), Boolean(input.correct));
+    case "reschedule_word":
+      return rescheduleWord(ctx, String(input.word_id ?? ""), Number(input.hours_from_now ?? 0));
+    case "update_word":
+      return updateWord(ctx, String(input.word_id ?? ""), input);
+    case "delete_word":
+      return deleteWord(ctx, String(input.word_id ?? ""));
     case "propose_words":
       return proposeWords(input.proposals as WordProposal[]);
     default:
@@ -426,6 +488,141 @@ async function updateWordNote(
     result: {
       error:
         "Can't save notes on shared pack words until the v2_word_progress.notes migration runs (supabase/migrations/20260702_v2_word_notes.sql). Tell the user their note will stick once that's applied.",
+    },
+  };
+}
+
+// Overturns the latest grade: recomputes the schedule from the word's
+// current SRS state with the corrected outcome. The math stays in
+// calculateNextReview -- the model only decides THAT a correction is fair,
+// never what the schedule becomes. review_count is not re-incremented
+// (it's a correction, not a new review).
+async function regradeReview(ctx: ToolContext, wordId: string, correct: boolean) {
+  const { data: progress, error: progressError } = await ctx.supabase
+    .from("v2_word_progress")
+    .select("*")
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId)
+    .maybeSingle();
+  if (progressError) throw progressError;
+  if (!progress) return { result: { error: "No progress found for that word." } };
+
+  const { data: word } = await ctx.supabase
+    .from("v2_words")
+    .select("arabizi")
+    .eq("id", wordId)
+    .maybeSingle();
+
+  const tier = tierForProgress({ status: progress.status, review_count: progress.review_count });
+  const rating = !correct ? 0 : tier === "hard" ? 3 : 2;
+  const { interval, easeFactor, nextReviewDate } = calculateNextReview(
+    progress.interval ?? 0,
+    progress.ease_factor ?? 2.5,
+    rating,
+    progress.review_count ?? 0
+  );
+
+  const { error: updateError } = await ctx.supabase
+    .from("v2_word_progress")
+    .update({
+      status: rating >= 2 ? "learned" : "learning",
+      interval,
+      ease_factor: easeFactor,
+      next_review_date: nextReviewDate.toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId);
+  if (updateError) throw updateError;
+
+  return {
+    result: {
+      word_id: wordId,
+      arabizi: word?.arabizi,
+      regraded_as: correct ? "correct" : "incorrect",
+      next_review_date: nextReviewDate.toISOString(),
+    },
+  };
+}
+
+async function rescheduleWord(ctx: ToolContext, wordId: string, hoursFromNow: number) {
+  const hours = Number.isFinite(hoursFromNow) ? Math.max(0, hoursFromNow) : 0;
+  const nextReview = new Date(Date.now() + hours * 3600_000).toISOString();
+  const { error, count } = await ctx.supabase
+    .from("v2_word_progress")
+    .update({ next_review_date: nextReview, updated_at: new Date().toISOString() }, { count: "exact" })
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId);
+  if (error) throw error;
+  if (!count) return { result: { error: "No progress found for that word." } };
+  return { result: { word_id: wordId, next_review_date: nextReview } };
+}
+
+const EDITABLE_WORD_FIELDS = ["arabizi", "script", "english", "type", "memory_hook"] as const;
+
+async function updateWord(ctx: ToolContext, wordId: string, input: Record<string, unknown>) {
+  const { data: word, error: readError } = await ctx.supabase
+    .from("v2_words")
+    .select("user_id, pack_id")
+    .eq("id", wordId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!word) return { result: { error: "Word not found." } };
+  if (word.user_id !== ctx.userId || word.pack_id !== null) {
+    return {
+      result: {
+        error:
+          "That's a shared pack word -- it can't be edited. Offer to save the correction in the word's note, or add the user's own version instead.",
+      },
+    };
+  }
+
+  const patch: Record<string, string> = {};
+  for (const field of EDITABLE_WORD_FIELDS) {
+    if (typeof input[field] === "string" && (input[field] as string).trim()) {
+      patch[field] = (input[field] as string).trim();
+    }
+  }
+  if (Object.keys(patch).length === 0) {
+    return { result: { error: "No editable fields given (arabizi, script, english, type, memory_hook)." } };
+  }
+
+  const { error: updateError } = await ctx.supabase.from("v2_words").update(patch).eq("id", wordId);
+  if (updateError) throw updateError;
+  return { result: { word_id: wordId, updated: patch } };
+}
+
+async function deleteWord(ctx: ToolContext, wordId: string) {
+  const { data: word, error: readError } = await ctx.supabase
+    .from("v2_words")
+    .select("arabizi, user_id, pack_id")
+    .eq("id", wordId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!word) return { result: { error: "Word not found." } };
+
+  const { error: progressError } = await ctx.supabase
+    .from("v2_word_progress")
+    .delete()
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId);
+  if (progressError) throw progressError;
+
+  // Their own custom word disappears entirely; a pack word just leaves
+  // their queue and stays in the reservoir.
+  let wordDeleted = false;
+  if (word.user_id === ctx.userId && word.pack_id === null) {
+    const { error: deleteError } = await ctx.supabase.from("v2_words").delete().eq("id", wordId);
+    if (deleteError) throw deleteError;
+    wordDeleted = true;
+  }
+
+  return {
+    result: {
+      word_id: wordId,
+      arabizi: word.arabizi,
+      removed_from_queue: true,
+      word_deleted: wordDeleted,
     },
   };
 }

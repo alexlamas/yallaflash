@@ -432,7 +432,26 @@ export function ChatWindow() {
         message: text,
       });
       setConversationId(data.conversationId);
-      setMessages((prev) => [...prev, data.message]);
+      setMessages((prev) => {
+        // Race guard for background commentary: if the user already advanced
+        // to a new card, this reply is about the PREVIOUS word -- slot it in
+        // before the new card so it stays with its own exchange instead of
+        // reading as a reply to the card on the table.
+        if (background) {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const widgets = prev[i].widgets ?? [];
+            const j = widgets.findIndex((w) => isReviewWidget(w));
+            if (j === -1) continue;
+            if (!answeredKeys.has(`${prev[i].id}:${j}`)) {
+              const copy = [...prev];
+              copy.splice(i, 0, data.message);
+              return copy;
+            }
+            break;
+          }
+        }
+        return [...prev, data.message];
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "That message didn't send.");
     } finally {
