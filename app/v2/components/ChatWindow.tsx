@@ -265,6 +265,16 @@ export function ChatWindow() {
       }
     }
     let start = lastAssistant >= 0 ? lastAssistant : 0;
+    // A verdict and its trailing tutor commentary are one moment -- without
+    // this, the verdict slides into history the instant the commentary
+    // arrives, reading as two disconnected events.
+    while (
+      start > 0 &&
+      visibleMessages[start - 1]?.role === "assistant" &&
+      (visibleMessages[start - 1].widgets ?? []).some((w) => w.type === "review_verdict")
+    ) {
+      start -= 1;
+    }
     if (pending && pending.messageIndex < start) start = pending.messageIndex;
     if (start > 0 && visibleMessages[start - 1]?.role === "user") start -= 1;
     return start;
@@ -277,6 +287,27 @@ export function ChatWindow() {
   useEffect(() => {
     setShowHistory(false);
   }, [visibleMessages.length]);
+
+  // Enter (or N) advances to the next word once a verdict is showing --
+  // reviewing never needs the mouse.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" && event.key.toLowerCase() !== "n") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (pending || loading || checking) return;
+      const last = visibleMessages[visibleMessages.length - 1];
+      const prev = visibleMessages[visibleMessages.length - 2];
+      const verdictShowing =
+        (last?.widgets ?? []).some((w) => w.type === "review_verdict") ||
+        (last?.role === "assistant" &&
+          (prev?.widgets ?? []).some((w) => w.type === "review_verdict"));
+      if (verdictShowing) serveNext();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, loading, checking, visibleMessages, conversationId]);
 
   useEffect(() => {
     if (showHistory && scrollRef.current) {
