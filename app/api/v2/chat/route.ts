@@ -9,9 +9,9 @@ import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/li
 import type { Widget } from "@/app/v2/lib/types";
 
 // The tool loop makes up to MAX_TOOL_ITERATIONS sequential Claude calls;
-// Vercel's default 10s function limit is not enough for that. 300 is the
-// Pro ceiling -- Vercel clamps to the plan's max, so this is safe on Hobby.
-export const maxDuration = 300;
+// Vercel's default 10s function limit is not enough for that. 60 is the
+// Hobby-plan ceiling -- values above it fail the build, they don't clamp.
+export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Sonnet: the deterministic layer owns correctness (grading, scheduling,
