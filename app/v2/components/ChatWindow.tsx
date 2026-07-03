@@ -1156,7 +1156,14 @@ export function ChatWindow() {
         {/* Mobile top bar: menu, mini progress, and the panel behind a sheet */}
         <div className="lg:hidden flex items-center gap-3 px-3 py-2">
           <AccountMenu triggerClassName="h-8 w-8" onNewSession={startNewSession} />
-          <div className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden">
+          <div
+            className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden"
+            role="progressbar"
+            aria-label="Learning progress"
+            aria-valuenow={progressPercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
             <div
               className="h-full bg-green-500 rounded-full transition-[width] duration-700"
               style={{ width: `${progressPercent}%` }}
@@ -1359,6 +1366,7 @@ export function ChatWindow() {
             <Textarea
               ref={textareaRef}
               rows={1}
+              aria-label="Message your tutor"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

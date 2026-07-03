@@ -72,9 +72,12 @@ export function QuizMC({
               onClick={() => handleSelect(option)}
             >
               {active && (
-                <span className="mr-2 text-xs text-disabled border rounded px-1.5 py-0.5 hidden sm:inline-block">
+                <kbd
+                  aria-hidden="true"
+                  className="mr-2 hidden sm:flex h-5 w-5 items-center justify-center rounded border border-b-2 border-gray-200 bg-gray-50 font-mono text-[11px] text-disabled"
+                >
                   {index + 1}
-                </span>
+                </kbd>
               )}
               {option}
             </Button>

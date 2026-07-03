@@ -148,7 +148,14 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
             <span className="text-sm font-medium text-heading">Your forest</span>
             <span className="text-sm font-semibold text-heading font-mono">{percent}%</span>
           </div>
-          <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+          <div
+            className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden"
+            role="progressbar"
+            aria-label="Learning progress"
+            aria-valuenow={percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
             <div
               className="h-full bg-green-500 rounded-full transition-[width] duration-700"
               style={{ width: `${percent}%` }}
@@ -226,7 +233,11 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
                 <span className="font-medium text-heading truncate w-[72px] shrink-0">{word.arabizi}</span>
                 {retention === null ? (
                   <>
-                    <span className="flex-1 text-xs text-subtle truncate blur-[3px] hover:blur-none transition-[filter] select-none">
+                    <span
+                      tabIndex={0}
+                      aria-label={`Translation of ${word.arabizi} -- focus to reveal`}
+                      className="flex-1 text-xs text-subtle truncate blur-[3px] hover:blur-none focus-visible:blur-none focus-visible:outline-none transition-[filter] select-none"
+                    >
                       {word.english}
                     </span>
                     <span className="font-mono text-[10px] text-disabled border border-gray-200 rounded px-1.5 py-0.5">
@@ -235,7 +246,11 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 min-w-0 truncate text-xs text-subtle blur-[3px] hover:blur-none transition-[filter] select-none">
+                    <span
+                      tabIndex={0}
+                      aria-label={`Translation of ${word.arabizi} -- focus to reveal`}
+                      className="flex-1 min-w-0 truncate text-xs text-subtle blur-[3px] hover:blur-none focus-visible:blur-none focus-visible:outline-none transition-[filter] select-none"
+                    >
                       {word.english}
                     </span>
                     <SignalBars retention={retention} />
