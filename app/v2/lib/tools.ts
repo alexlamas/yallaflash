@@ -125,6 +125,18 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "update_instructions",
+    description:
+      "Rewrite the user's standing instructions (the user-visible slice of how you coach, shown at the end of your system prompt). Pass the COMPLETE new instructions -- keep everything the user didn't ask to change. Use for lasting behavior changes only, not one-off requests.",
+    input_schema: {
+      type: "object",
+      properties: {
+        instructions: { type: "string", description: "The full replacement instructions" },
+      },
+      required: ["instructions"],
+    },
+  },
+  {
     name: "delete_word",
     description:
       "Stop learning a word: removes it from the user's review queue (and deletes the word entirely if it's their own custom word). Destructive -- only call after the user has clearly asked for or agreed to the removal in this conversation.",
@@ -203,6 +215,8 @@ export async function executeTool(
       return updateWord(ctx, String(input.word_id ?? ""), input);
     case "delete_word":
       return deleteWord(ctx, String(input.word_id ?? ""));
+    case "update_instructions":
+      return updateInstructions(ctx, String(input.instructions ?? ""));
     case "propose_words":
       return proposeWords(input.proposals as WordProposal[]);
     default:
@@ -701,6 +715,48 @@ async function deleteWord(ctx: ToolContext, wordId: string): Promise<{ result: u
           field: "status",
           from: "in your queue",
           to: wordDeleted ? "deleted entirely" : "removed (still in the pack)",
+        },
+      ],
+    },
+  };
+}
+
+function truncate(text: string, max = 90): string {
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+async function updateInstructions(
+  ctx: ToolContext,
+  instructions: string
+): Promise<{ result: unknown; widget?: Widget }> {
+  const trimmed = instructions.trim();
+  if (!trimmed) return { result: { error: "Instructions can't be empty." } };
+
+  const { data: existing } = await ctx.supabase
+    .from("v2_user_settings")
+    .select("tutor_instructions")
+    .eq("user_id", ctx.userId)
+    .maybeSingle();
+
+  const { error } = await ctx.supabase
+    .from("v2_user_settings")
+    .upsert(
+      { user_id: ctx.userId, tutor_instructions: trimmed, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" }
+    );
+  if (error) throw error;
+
+  return {
+    result: { saved: true, instructions: trimmed },
+    widget: {
+      type: "data_change",
+      action: "edited",
+      arabizi: "coaching instructions",
+      changes: [
+        {
+          field: "instructions",
+          from: existing?.tutor_instructions ? truncate(existing.tutor_instructions) : null,
+          to: truncate(trimmed),
         },
       ],
     },

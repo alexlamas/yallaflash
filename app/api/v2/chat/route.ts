@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { incrementUsage } from "@/app/services/aiUsageService";
 import { errorMessage } from "@/app/api/utils";
-import { TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
+import { DEFAULT_TUTOR_INSTRUCTIONS, TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
 import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/lib/tools";
 import type { Widget } from "@/app/v2/lib/types";
 
@@ -65,6 +65,8 @@ export async function POST(req: Request) {
 
       const assistantMessage = await insertMessage(supabase, conversationId, "assistant", ONBOARDING_GREETING, [
         { type: "onboarding_choice" },
+        // How-I-coach is user-editable from the very first screen.
+        { type: "instructions_editor", instructions: DEFAULT_TUTOR_INSTRUCTIONS },
       ]);
       return NextResponse.json({ conversationId, message: assistantMessage });
     }
@@ -80,6 +82,16 @@ export async function POST(req: Request) {
 
     const languageId = await getDefaultLanguageId(supabase);
     const ctx = { supabase, userId: user.id, languageId };
+
+    // The user-editable slice of the tutor's behavior rides at the end of
+    // the system prompt; the tutor can rewrite it via update_instructions.
+    const { data: settings } = await supabase
+      .from("v2_user_settings")
+      .select("tutor_instructions")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    const instructions = settings?.tutor_instructions?.trim() || DEFAULT_TUTOR_INSTRUCTIONS;
+    const system = `${TUTOR_SYSTEM_PROMPT}\n\nUSER'S STANDING INSTRUCTIONS (user-visible and editable -- follow them):\n${instructions}`;
 
     // The Anthropic API requires the message list to start with a "user"
     // turn and strictly alternate roles. The deterministic bootstrap
@@ -113,7 +125,7 @@ export async function POST(req: Request) {
         // tool_use block gets truncated and silently dropped, so the reply
         // text lands without its widget.
         max_tokens: 4096,
-        system: TUTOR_SYSTEM_PROMPT,
+        system,
         tools: TOOL_DEFINITIONS,
         messages,
       });

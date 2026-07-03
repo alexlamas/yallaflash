@@ -9,6 +9,7 @@ import { OnboardingChoice } from "./OnboardingChoice";
 import { PackList } from "./PackList";
 import { ReviewVerdict } from "./ReviewVerdict";
 import { DataChange } from "./DataChange";
+import { InstructionsEditor } from "./InstructionsEditor";
 import { SessionSummary } from "./SessionSummary";
 
 export interface WidgetActions {
@@ -53,6 +54,8 @@ export function WidgetRenderer({
       return <ReviewVerdict widget={widget} />;
     case "data_change":
       return <DataChange widget={widget} />;
+    case "instructions_editor":
+      return <InstructionsEditor initial={widget.instructions} />;
     case "session_summary":
       return <SessionSummary widget={widget} />;
     default:

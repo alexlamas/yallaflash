@@ -136,6 +136,9 @@ export type Widget =
       type: "word_picker";
       candidates: Pick<V2Word, "id" | "arabizi" | "script" | "english" | "type">[];
     }
+  // The user-editable slice of the tutor's behavior, shown at onboarding
+  // (and whenever the tutor surfaces it). Saving writes v2_user_settings.
+  | { type: "instructions_editor"; instructions: string }
   // Receipt for a tutor-initiated data change (regrade, reschedule, edit,
   // delete, note) -- the app renders what actually changed, so mutations
   // are never just prose.
