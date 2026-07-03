@@ -296,17 +296,24 @@ export function ChatWindow() {
       }
     }
     let start = lastAssistant >= 0 ? lastAssistant : 0;
-    // A verdict and its trailing tutor commentary are one moment -- without
-    // this, the verdict slides into history the instant the commentary
-    // arrives, reading as two disconnected events. But once a NEW question
-    // card is on the table, the previous verdict retires to history.
+    // Auto-advance composition: the active view reads [last verdict][its
+    // commentary][new question card]. Walk back over ONE contiguous
+    // commentary+verdict group so the previous word's status stays visible
+    // above the card you're answering; anything older retires to history.
+    let i = start;
     while (
-      start > 0 &&
-      !(visibleMessages[start].widgets ?? []).some((w) => isReviewWidget(w)) &&
-      visibleMessages[start - 1]?.role === "assistant" &&
-      (visibleMessages[start - 1].widgets ?? []).some((w) => w.type === "review_verdict")
+      i > 0 &&
+      visibleMessages[i - 1]?.role === "assistant" &&
+      (visibleMessages[i - 1].widgets ?? []).length === 0
     ) {
-      start -= 1;
+      i -= 1; // trailing commentary (text-only assistant messages)
+    }
+    if (
+      i > 0 &&
+      visibleMessages[i - 1]?.role === "assistant" &&
+      (visibleMessages[i - 1].widgets ?? []).some((w) => w.type === "review_verdict")
+    ) {
+      start = i - 1; // include the verdict (and the commentary walked over)
     }
     if (pending && pending.messageIndex < start) start = pending.messageIndex;
     if (start > 0 && visibleMessages[start - 1]?.role === "user") start -= 1;
@@ -646,6 +653,9 @@ export function ChatWindow() {
       ]);
       sessionStats.current.reviewed += 1;
       if (instant) sessionStats.current.correct += 1;
+      // Auto-advance: the next card lands in the same beat (prefetched, so
+      // ~instant); the verdict stays visible above it as status.
+      serveNext(wordId);
       try {
         const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
         refreshProgress();
@@ -655,7 +665,6 @@ export function ChatWindow() {
           next_review_date: result.next_review_date,
           image_url: result.image_url,
         });
-        prefetchNext(wordId);
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct}${hinted ? " hinted=true (counts as struggled -- shorter interval)" : ""} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
           { background: true }
@@ -689,7 +698,7 @@ export function ChatWindow() {
       setChecking(false);
       sessionStats.current.reviewed += 1;
       if (result.correct) sessionStats.current.correct += 1;
-      prefetchNext(wordId);
+      serveNext(wordId);
       await sendMessage(
         `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
         { background: true }
@@ -809,6 +818,8 @@ export function ChatWindow() {
       fetchJSON("/api/v2/review/next", { conversationId, commitWidget: cached }).catch((err) =>
         console.error("[serveNext] commit failed", err)
       );
+      // Warm the cache for the card after this one.
+      prefetchNext(cached.word_id);
       return;
     }
 
@@ -834,6 +845,8 @@ export function ChatWindow() {
         return;
       }
       setMessages((prev) => [...prev, data.message!]);
+      const served = (data.message.widgets ?? []).find((w) => isReviewWidget(w));
+      if (served && isReviewWidget(served)) prefetchNext(served.word_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't serve the next word.");
     } finally {
@@ -916,7 +929,7 @@ export function ChatWindow() {
         ]);
       }
       sessionStats.current.reviewed += 1;
-      prefetchNext(widget.word_id);
+      serveNext(widget.word_id);
       await sendMessage(
         `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
         { background: true }
