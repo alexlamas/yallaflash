@@ -8,8 +8,16 @@ import { Textarea } from "@/components/ui/textarea";
 // The user-editable slice of the tutor's behavior, surfaced at onboarding.
 // Saving writes v2_user_settings; the tutor reads it on every turn and can
 // also rewrite it mid-conversation (update_instructions).
-export function InstructionsEditor({ initial }: { initial: string }) {
-  const [open, setOpen] = useState(false);
+export function InstructionsEditor({
+  initial,
+  standalone = false,
+}: {
+  initial: string;
+  // standalone: always-open page mode (the /coaching surface); the chat
+  // widget collapses to a receipt after saving instead.
+  standalone?: boolean;
+}) {
+  const [open, setOpen] = useState(standalone);
   const [value, setValue] = useState(initial);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,13 +32,13 @@ export function InstructionsEditor({ initial }: { initial: string }) {
       });
       if (!res.ok) throw new Error("Couldn't save -- try again.");
       setSaved(true);
-      setOpen(false);
+      if (!standalone) setOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save -- try again.");
     }
   }
 
-  if (saved) {
+  if (saved && !standalone) {
     return (
       <div className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50/70 px-4 py-2 text-sm text-green-900">
         <Check className="h-4 w-4 text-green-700" />
@@ -62,8 +70,15 @@ export function InstructionsEditor({ initial }: { initial: string }) {
             things like &quot;skip the root explanations&quot;.
           </p>
           {error && <p className="text-xs text-red-600">{error}</p>}
-          <Button onClick={save} disabled={!value.trim()} className="w-full bg-green-600 hover:bg-green-700">
-            Save
+          <Button
+            onClick={() => {
+              setSaved(false);
+              save();
+            }}
+            disabled={!value.trim()}
+            className="w-full bg-green-600 hover:bg-green-700"
+          >
+            {standalone && saved ? "Saved ✓" : "Save"}
           </Button>
         </div>
       )}

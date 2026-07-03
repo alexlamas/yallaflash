@@ -12,6 +12,8 @@ type UpdateRequest = {
   wordId: string;
   fields?: Partial<Record<(typeof EDITABLE_FIELDS)[number], string>>;
   userNote?: string | null;
+  // Row-level reschedule (boost to now, push to tomorrow/next week).
+  nextReviewHours?: number;
 };
 
 export async function POST(req: Request) {
@@ -51,6 +53,16 @@ export async function POST(req: Request) {
         const { error: updateError } = await supabase.from("v2_words").update(patch).eq("id", data.wordId);
         if (updateError) throw updateError;
       }
+    }
+
+    if (typeof data.nextReviewHours === "number" && Number.isFinite(data.nextReviewHours)) {
+      const next = new Date(Date.now() + Math.max(0, data.nextReviewHours) * 3600_000).toISOString();
+      const { error: schedError } = await supabase
+        .from("v2_word_progress")
+        .update({ next_review_date: next, updated_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .eq("word_id", data.wordId);
+      if (schedError) throw schedError;
     }
 
     if (data.userNote !== undefined) {

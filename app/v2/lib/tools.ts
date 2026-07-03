@@ -137,13 +137,21 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "delete_word",
+    name: "list_all_words",
     description:
-      "Stop learning a word: removes it from the user's review queue (and deletes the word entirely if it's their own custom word). Destructive -- only call after the user has clearly asked for or agreed to the removal in this conversation.",
+      "The user's ENTIRE vocabulary with SRS state -- use for whole-collection jobs: deduping, auditing, bulk cleanup, 'what am I learning?'. Personal scale, fits comfortably in context.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "delete_words",
+    description:
+      "Stop learning one or more words: removes them from the user's review queue (words they own are deleted entirely; pack words stay in the shared reservoir). Destructive -- state the exact list first and only call after the user clearly agrees in this conversation. For cleanup jobs like deduping: list_all_words, propose the exact removals, get a yes, then one delete_words call.",
     input_schema: {
       type: "object",
-      properties: { word_id: { type: "string" } },
-      required: ["word_id"],
+      properties: {
+        word_ids: { type: "array", items: { type: "string" } },
+      },
+      required: ["word_ids"],
     },
   },
   {
@@ -213,8 +221,10 @@ export async function executeTool(
       return rescheduleWord(ctx, String(input.word_id ?? ""), Number(input.hours_from_now ?? 0));
     case "update_word":
       return updateWord(ctx, String(input.word_id ?? ""), input);
-    case "delete_word":
-      return deleteWord(ctx, String(input.word_id ?? ""));
+    case "list_all_words":
+      return listAllWords(ctx);
+    case "delete_words":
+      return deleteWords(ctx, Array.isArray(input.word_ids) ? input.word_ids.map(String) : []);
     case "update_instructions":
       return updateInstructions(ctx, String(input.instructions ?? ""));
     case "propose_words":
@@ -674,48 +684,78 @@ async function updateWord(
   };
 }
 
-async function deleteWord(ctx: ToolContext, wordId: string): Promise<{ result: unknown; widget?: Widget }> {
-  const { data: word, error: readError } = await ctx.supabase
+// The whole collection, compact: made for whole-vocabulary jobs (dedupe,
+// audits). A few hundred rows fits comfortably in the model's context.
+async function listAllWords(ctx: ToolContext) {
+  const { data, error } = await ctx.supabase
+    .from("v2_word_progress")
+    .select("word_id, status, review_count, next_review_date, v2_words!inner(arabizi, script, english, type, user_id, pack_id)")
+    .eq("user_id", ctx.userId)
+    .order("next_review_date", { ascending: true });
+  if (error) throw error;
+
+  type W = { arabizi: string; script: string | null; english: string; type: string | null; user_id: string | null; pack_id: string | null };
+  const words = (data ?? []).map((row) => {
+    const w = row.v2_words as unknown as W;
+    return {
+      word_id: row.word_id,
+      arabizi: w.arabizi,
+      script: w.script,
+      english: w.english,
+      type: w.type,
+      owned: w.user_id === ctx.userId && w.pack_id === null,
+      status: row.status,
+      review_count: row.review_count,
+      next_review_date: row.next_review_date,
+    };
+  });
+  return { result: { count: words.length, words } };
+}
+
+async function deleteWords(ctx: ToolContext, wordIds: string[]): Promise<{ result: unknown; widget?: Widget }> {
+  if (wordIds.length === 0) return { result: { error: "word_ids is empty." } };
+
+  const { data: words, error: readError } = await ctx.supabase
     .from("v2_words")
-    .select("arabizi, user_id, pack_id")
-    .eq("id", wordId)
-    .maybeSingle();
+    .select("id, arabizi, user_id, pack_id")
+    .in("id", wordIds);
   if (readError) throw readError;
-  if (!word) return { result: { error: "Word not found." } };
+  if (!words || words.length === 0) return { result: { error: "No matching words found." } };
 
   const { error: progressError } = await ctx.supabase
     .from("v2_word_progress")
     .delete()
     .eq("user_id", ctx.userId)
-    .eq("word_id", wordId);
+    .in("word_id", wordIds);
   if (progressError) throw progressError;
 
-  // Their own custom word disappears entirely; a pack word just leaves
-  // their queue and stays in the reservoir.
-  let wordDeleted = false;
-  if (word.user_id === ctx.userId && word.pack_id === null) {
-    const { error: deleteError } = await ctx.supabase.from("v2_words").delete().eq("id", wordId);
+  // Their own custom words disappear entirely; pack words just leave the
+  // queue and stay in the reservoir. RLS backstops the ownership check.
+  const ownedIds = words.filter((w) => w.user_id === ctx.userId && w.pack_id === null).map((w) => w.id);
+  if (ownedIds.length > 0) {
+    const { error: deleteError } = await ctx.supabase.from("v2_words").delete().in("id", ownedIds);
     if (deleteError) throw deleteError;
-    wordDeleted = true;
   }
 
+  const shown = words.slice(0, 8);
   return {
     result: {
-      word_id: wordId,
-      arabizi: word.arabizi,
-      removed_from_queue: true,
-      word_deleted: wordDeleted,
+      removed: words.map((w) => ({ word_id: w.id, arabizi: w.arabizi })),
+      deleted_entirely: ownedIds.length,
     },
     widget: {
       type: "data_change",
       action: "deleted",
-      arabizi: word.arabizi,
+      arabizi: words.length === 1 ? words[0].arabizi : `${words.length} words`,
       changes: [
-        {
-          field: "status",
+        ...shown.map((w) => ({
+          field: w.arabizi,
           from: "in your queue",
-          to: wordDeleted ? "deleted entirely" : "removed (still in the pack)",
-        },
+          to: ownedIds.includes(w.id) ? "deleted entirely" : "removed (still in the pack)",
+        })),
+        ...(words.length > shown.length
+          ? [{ field: `+${words.length - shown.length} more`, to: "removed" }]
+          : []),
       ],
     },
   };

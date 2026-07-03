@@ -43,7 +43,8 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 
   // Immersive pages render fullscreen without the top nav. /words is part
   // of the V2 shell and brings its own header.
-  const isImmersive = pathname === "/onboarding" || pathname === "/chat" || pathname === "/words";
+  const isImmersive =
+    pathname === "/onboarding" || pathname === "/chat" || pathname === "/words" || pathname === "/coaching";
 
   return (
     <>
