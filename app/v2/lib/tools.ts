@@ -429,7 +429,7 @@ async function updateWordNote(
   wordId: string,
   note: string,
   mode: "append" | "replace"
-) {
+): Promise<{ result: unknown; widget?: Widget }> {
   const trimmed = note.trim();
   if (!wordId || !trimmed) {
     return { result: { error: "word_id and a non-empty note are required" } };
@@ -492,12 +492,26 @@ async function updateWordNote(
   };
 }
 
+function relativeTime(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "now";
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 60) return `~${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `~${hours}h`;
+  return `~${Math.round(hours / 24)}d`;
+}
+
 // Overturns the latest grade: recomputes the schedule from the word's
 // current SRS state with the corrected outcome. The math stays in
 // calculateNextReview -- the model only decides THAT a correction is fair,
 // never what the schedule becomes. review_count is not re-incremented
 // (it's a correction, not a new review).
-async function regradeReview(ctx: ToolContext, wordId: string, correct: boolean) {
+async function regradeReview(
+  ctx: ToolContext,
+  wordId: string,
+  correct: boolean
+): Promise<{ result: unknown; widget?: Widget }> {
   const { data: progress, error: progressError } = await ctx.supabase
     .from("v2_word_progress")
     .select("*")
@@ -542,28 +556,73 @@ async function regradeReview(ctx: ToolContext, wordId: string, correct: boolean)
       regraded_as: correct ? "correct" : "incorrect",
       next_review_date: nextReviewDate.toISOString(),
     },
+    widget: {
+      type: "data_change",
+      action: "regraded",
+      arabizi: word?.arabizi ?? "",
+      changes: [
+        { field: "marked", to: correct ? "correct" : "incorrect" },
+        {
+          field: "next review",
+          from: progress.next_review_date ? relativeTime(progress.next_review_date) : null,
+          to: relativeTime(nextReviewDate.toISOString()),
+        },
+      ],
+    },
   };
 }
 
-async function rescheduleWord(ctx: ToolContext, wordId: string, hoursFromNow: number) {
+async function rescheduleWord(
+  ctx: ToolContext,
+  wordId: string,
+  hoursFromNow: number
+): Promise<{ result: unknown; widget?: Widget }> {
   const hours = Number.isFinite(hoursFromNow) ? Math.max(0, hoursFromNow) : 0;
   const nextReview = new Date(Date.now() + hours * 3600_000).toISOString();
-  const { error, count } = await ctx.supabase
+
+  const { data: before } = await ctx.supabase
     .from("v2_word_progress")
-    .update({ next_review_date: nextReview, updated_at: new Date().toISOString() }, { count: "exact" })
+    .select("next_review_date, v2_words!inner(arabizi)")
+    .eq("user_id", ctx.userId)
+    .eq("word_id", wordId)
+    .maybeSingle();
+  if (!before) return { result: { error: "No progress found for that word." } };
+
+  const { error } = await ctx.supabase
+    .from("v2_word_progress")
+    .update({ next_review_date: nextReview, updated_at: new Date().toISOString() })
     .eq("user_id", ctx.userId)
     .eq("word_id", wordId);
   if (error) throw error;
-  if (!count) return { result: { error: "No progress found for that word." } };
-  return { result: { word_id: wordId, next_review_date: nextReview } };
+
+  const arabizi = (before.v2_words as unknown as { arabizi: string }).arabizi;
+  return {
+    result: { word_id: wordId, next_review_date: nextReview },
+    widget: {
+      type: "data_change",
+      action: "rescheduled",
+      arabizi,
+      changes: [
+        {
+          field: "next review",
+          from: before.next_review_date ? relativeTime(before.next_review_date) : null,
+          to: relativeTime(nextReview),
+        },
+      ],
+    },
+  };
 }
 
 const EDITABLE_WORD_FIELDS = ["arabizi", "script", "english", "type", "memory_hook"] as const;
 
-async function updateWord(ctx: ToolContext, wordId: string, input: Record<string, unknown>) {
+async function updateWord(
+  ctx: ToolContext,
+  wordId: string,
+  input: Record<string, unknown>
+): Promise<{ result: unknown; widget?: Widget }> {
   const { data: word, error: readError } = await ctx.supabase
     .from("v2_words")
-    .select("user_id, pack_id")
+    .select("user_id, pack_id, arabizi, script, english, type, memory_hook")
     .eq("id", wordId)
     .maybeSingle();
   if (readError) throw readError;
@@ -589,10 +648,19 @@ async function updateWord(ctx: ToolContext, wordId: string, input: Record<string
 
   const { error: updateError } = await ctx.supabase.from("v2_words").update(patch).eq("id", wordId);
   if (updateError) throw updateError;
-  return { result: { word_id: wordId, updated: patch } };
+
+  const changes = Object.entries(patch).map(([field, to]) => ({
+    field,
+    from: (word as Record<string, string | null>)[field] ?? null,
+    to,
+  }));
+  return {
+    result: { word_id: wordId, updated: patch },
+    widget: { type: "data_change", action: "edited", arabizi: patch.arabizi ?? word.arabizi, changes },
+  };
 }
 
-async function deleteWord(ctx: ToolContext, wordId: string) {
+async function deleteWord(ctx: ToolContext, wordId: string): Promise<{ result: unknown; widget?: Widget }> {
   const { data: word, error: readError } = await ctx.supabase
     .from("v2_words")
     .select("arabizi, user_id, pack_id")
@@ -623,6 +691,18 @@ async function deleteWord(ctx: ToolContext, wordId: string) {
       arabizi: word.arabizi,
       removed_from_queue: true,
       word_deleted: wordDeleted,
+    },
+    widget: {
+      type: "data_change",
+      action: "deleted",
+      arabizi: word.arabizi,
+      changes: [
+        {
+          field: "status",
+          from: "in your queue",
+          to: wordDeleted ? "deleted entirely" : "removed (still in the pack)",
+        },
+      ],
     },
   };
 }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, ImagePlus, LogOut, Trees, Undo2, X } from "lucide-react";
+import { ArrowUp, ImagePlus, LogOut, Table2, Trees, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -143,6 +143,11 @@ function AccountMenu({ triggerClassName }: { triggerClassName?: string }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
+        <DropdownMenuItem asChild>
+          <Link href="/words" className="flex items-center gap-2">
+            <Table2 className="h-4 w-4 text-gray-500" /> My words
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link href="/" className="flex items-center gap-2">
             <Undo2 className="h-4 w-4 text-gray-500" /> Old app

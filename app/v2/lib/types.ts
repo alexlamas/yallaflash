@@ -136,6 +136,15 @@ export type Widget =
       type: "word_picker";
       candidates: Pick<V2Word, "id" | "arabizi" | "script" | "english" | "type">[];
     }
+  // Receipt for a tutor-initiated data change (regrade, reschedule, edit,
+  // delete, note) -- the app renders what actually changed, so mutations
+  // are never just prose.
+  | {
+      type: "data_change";
+      action: "regraded" | "rescheduled" | "edited" | "deleted" | "note_saved";
+      arabizi: string;
+      changes: { field: string; from?: string | null; to?: string | null }[];
+    }
   // Client-side only: rendered instantly from the deterministic grade, before
   // (and independent of) the tutor's commentary.
   | {

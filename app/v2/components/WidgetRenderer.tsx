@@ -8,6 +8,7 @@ import { WordPicker } from "./WordPicker";
 import { OnboardingChoice } from "./OnboardingChoice";
 import { PackList } from "./PackList";
 import { ReviewVerdict } from "./ReviewVerdict";
+import { DataChange } from "./DataChange";
 import { SessionSummary } from "./SessionSummary";
 
 export interface WidgetActions {
@@ -50,6 +51,8 @@ export function WidgetRenderer({
       return <WordPicker widget={widget} onStartWords={actions.onStartWords} answered={answered} />;
     case "review_verdict":
       return <ReviewVerdict widget={widget} />;
+    case "data_change":
+      return <DataChange widget={widget} />;
     case "session_summary":
       return <SessionSummary widget={widget} />;
     default:

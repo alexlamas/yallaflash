@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import Link from "next/link";
+import { ArrowUpRight, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import type { Widget, WordProposal } from "@/app/v2/lib/types";
@@ -24,12 +25,36 @@ export function AddWordsPreview({
   // Belt-and-suspenders against an empty staging call reaching the UI.
   if (count === 0) return null;
 
-  // Once confirmed, the call-to-action collapses to a receipt.
+  // Once confirmed, the call-to-action collapses to a receipt styled as a
+  // miniature of the /words table, with a jump link to the full thing.
   if (confirmed) {
     return (
-      <div className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50/70 px-4 py-2 text-sm text-green-900">
-        <Check className="h-4 w-4 text-green-700" />
-        Added {count} word{count === 1 ? "" : "s"}
+      <div className="max-w-md overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="flex items-center gap-2 border-b border-gray-100 bg-green-50/60 px-3.5 py-2 text-sm">
+          <Check className="h-4 w-4 text-green-700" />
+          <span className="font-semibold text-green-900">
+            Added {count} word{count === 1 ? "" : "s"}
+          </span>
+          <Link
+            href="/words"
+            className="ml-auto flex items-center gap-0.5 text-xs font-medium text-subtle hover:text-heading"
+          >
+            My words <ArrowUpRight className="h-3 w-3" />
+          </Link>
+        </div>
+        <table className="w-full text-[13px]">
+          <tbody>
+            {widget.proposals.map((p, i) => (
+              <tr key={i} className="border-t border-gray-50 first:border-t-0">
+                <td className="px-3.5 py-1.5 font-medium">{p.arabizi}</td>
+                <td dir="rtl" className="px-2 py-1.5">
+                  {p.script ?? ""}
+                </td>
+                <td className="px-2 py-1.5 text-subtle">{p.english}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
