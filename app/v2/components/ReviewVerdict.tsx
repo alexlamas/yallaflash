@@ -13,7 +13,13 @@ function relativeTime(iso: string): string {
 }
 
 export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "review_verdict" }> }) {
-  const heading = widget.conceded ? "Answer revealed" : widget.correct ? "Correct" : "Not quite";
+  const heading = widget.conceded
+    ? "Answer revealed"
+    : widget.correct
+    ? widget.hinted
+      ? "Correct -- with a hint"
+      : "Correct"
+    : "Not quite";
   return (
     <Card
       className={cn(

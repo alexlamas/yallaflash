@@ -182,6 +182,9 @@ export function ChatWindow() {
   // The next card, fetched while the user reads the current verdict, so
   // Next word renders with zero wait.
   const prefetchRef = useRef<ReviewWidget | null>(null);
+  // Words the user took a hint on -- a hinted correct answer schedules as
+  // "struggled", not a full success.
+  const hintedRef = useRef<Set<string>>(new Set());
   // Running tally for the session-cleared summary card.
   const sessionStats = useRef({ reviewed: 0, correct: 0 });
   const [progressKey, setProgressKey] = useState(0);
@@ -277,9 +280,11 @@ export function ChatWindow() {
     let start = lastAssistant >= 0 ? lastAssistant : 0;
     // A verdict and its trailing tutor commentary are one moment -- without
     // this, the verdict slides into history the instant the commentary
-    // arrives, reading as two disconnected events.
+    // arrives, reading as two disconnected events. But once a NEW question
+    // card is on the table, the previous verdict retires to history.
     while (
       start > 0 &&
+      !(visibleMessages[start].widgets ?? []).some((w) => isReviewWidget(w)) &&
       visibleMessages[start - 1]?.role === "assistant" &&
       (visibleMessages[start - 1].widgets ?? []).some((w) => w.type === "review_verdict")
     ) {
@@ -582,6 +587,8 @@ export function ChatWindow() {
     const widget = widgetForKey(key);
     const review = widget && isReviewWidget(widget) ? widget : null;
     const instant = review?.answer ? gradeDeterministic(tier, submitted, review.answer) : null;
+    const hinted = hintedRef.current.has(wordId);
+    hintedRef.current.delete(wordId);
 
     if (instant !== null && review?.answer) {
       recordAnswered(key);
@@ -589,6 +596,7 @@ export function ChatWindow() {
         {
           type: "review_verdict",
           correct: instant,
+          hinted: hinted && instant,
           submitted,
           arabizi: review.answer.arabizi,
           english: review.answer.english,
@@ -599,7 +607,7 @@ export function ChatWindow() {
       sessionStats.current.reviewed += 1;
       if (instant) sessionStats.current.correct += 1;
       try {
-        const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted });
+        const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
         refreshProgress();
         patchVerdict(verdictId, {
           correct: result.correct,
@@ -609,7 +617,7 @@ export function ChatWindow() {
         });
         prefetchNext(wordId);
         await sendMessage(
-          `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
+          `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct}${hinted ? " hinted=true (counts as struggled -- shorter interval)" : ""} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
           { background: true }
         );
       } catch (err) {
@@ -622,13 +630,14 @@ export function ChatWindow() {
     // fallback rules, then the verdict lands as one transition.
     setChecking(true);
     try {
-      const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted });
+      const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
       recordAnswered(key);
       refreshProgress();
       appendLocalMessage("", [
         {
           type: "review_verdict",
           correct: result.correct,
+          hinted: hinted && result.correct,
           submitted,
           arabizi: result.arabizi,
           english: result.english,
@@ -897,10 +906,18 @@ export function ChatWindow() {
             label: "Skip",
             onClick: () => {
               recordAnswered(pending.key);
+              hintedRef.current.delete(reviewWidget.word_id);
               serveNext(reviewWidget.word_id);
             },
           },
-          { label: "Hint", onClick: () => sendMessage("give me a hint") },
+          {
+            label: "Hint",
+            onClick: () => {
+              // A hinted answer schedules as "struggled", not a full success.
+              hintedRef.current.add(reviewWidget.word_id);
+              sendMessage("give me a hint");
+            },
+          },
         ];
       }
       return [];

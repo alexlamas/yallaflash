@@ -100,9 +100,19 @@ export async function POST(req: Request) {
     // its user message was persisted (e.g. this exact bug) can also leave
     // two consecutive "user" rows -- merge consecutive same-role rows
     // rather than assume the history is already well-formed.
+    // The conversation is permanent, but the model only reads a recent
+    // window: word knowledge lives in the DB (tools), not in chat scrollback,
+    // so unbounded history would only add cost and latency.
+    const HISTORY_LIMIT = 40;
     const rows = historyRows ?? [];
     const firstUserIndex = rows.findIndex((row) => row.role === "user");
-    const relevantRows = firstUserIndex === -1 ? [] : rows.slice(firstUserIndex);
+    let relevantRows = firstUserIndex === -1 ? [] : rows.slice(firstUserIndex);
+    if (relevantRows.length > HISTORY_LIMIT) {
+      const window = relevantRows.slice(-HISTORY_LIMIT);
+      // The API requires the first message to be a user turn.
+      const firstUser = window.findIndex((row) => row.role === "user");
+      relevantRows = firstUser === -1 ? [] : window.slice(firstUser);
+    }
 
     const messages: Anthropic.MessageParam[] = [];
     for (const row of relevantRows) {

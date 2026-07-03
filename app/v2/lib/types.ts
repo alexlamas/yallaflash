@@ -154,6 +154,9 @@ export type Widget =
       type: "review_verdict";
       correct: boolean;
       conceded?: boolean;
+      // A hint was used before this answer -- correct, but scheduled as
+      // "struggled" rather than a full success.
+      hinted?: boolean;
       submitted?: string;
       arabizi: string;
       english: string;

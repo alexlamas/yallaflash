@@ -16,6 +16,9 @@ type AnswerRequest = {
   submitted?: string;
   // "Show answer" pressed: grade as a miss without an attempt.
   concede?: boolean;
+  // A hint was used before answering: correct still counts, but as
+  // "struggled" -- shorter interval, slight ease penalty, stays learning.
+  hinted?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -30,7 +33,7 @@ export async function POST(req: Request) {
     if (!validateRequest<AnswerRequest>(data, ["wordId", "tier"])) {
       return NextResponse.json({ error: "wordId and tier are required" }, { status: 400 });
     }
-    const { wordId, tier, concede } = data;
+    const { wordId, tier, concede, hinted } = data;
     const submitted = typeof data.submitted === "string" ? data.submitted : "";
     if (!concede && !submitted.trim()) {
       return NextResponse.json({ error: "submitted is required unless conceding" }, { status: 400 });
@@ -51,7 +54,7 @@ export async function POST(req: Request) {
       ? await gradeColdRecall(submitted, word.arabizi)
       : await gradeRecognition(submitted, word.english, { llmFallback: tier === "medium" });
 
-    const rating = !correct ? 0 : tier === "hard" ? 3 : 2;
+    const rating = !correct ? 0 : hinted ? 1 : tier === "hard" ? 3 : 2;
 
     const { data: progress } = await supabase
       .from("v2_word_progress")
