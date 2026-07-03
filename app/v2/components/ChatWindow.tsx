@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, ImagePlus, LogOut, SlidersHorizontal, Table2, Trees, Undo2, X } from "lucide-react";
+import { ArrowUp, ImagePlus, LogOut, RotateCcw, SlidersHorizontal, Table2, Trees, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
@@ -122,7 +122,13 @@ async function downscaleImage(file: File): Promise<string> {
 
 // V2's app menu, hanging off the logo: the chat IS the app, so it carries
 // its own session controls instead of borrowing V1's header.
-function AccountMenu({ triggerClassName }: { triggerClassName?: string }) {
+function AccountMenu({
+  triggerClassName,
+  onNewSession,
+}: {
+  triggerClassName?: string;
+  onNewSession?: () => void;
+}) {
   async function handleLogout() {
     await createClient().auth.signOut();
     window.location.href = "/";
@@ -143,6 +149,11 @@ function AccountMenu({ triggerClassName }: { triggerClassName?: string }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
+        {onNewSession && (
+          <DropdownMenuItem onClick={onNewSession} className="flex items-center gap-2">
+            <RotateCcw className="h-4 w-4 text-gray-500" /> New session
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem asChild>
           <Link href="/words" className="flex items-center gap-2">
             <Table2 className="h-4 w-4 text-gray-500" /> My words
@@ -330,6 +341,12 @@ export function ChatWindow() {
     }
   }, [showHistory]);
 
+  // A conversation is a SESSION, not a lifetime: after this much quiet the
+  // next visit starts fresh. Durable knowledge (words, notes, coaching
+  // instructions) lives in the DB, not in chat scrollback, so nothing is
+  // lost -- old sessions stay stored under their conversation ids.
+  const SESSION_MAX_QUIET_HOURS = 6;
+
   async function loadHistory(id: string) {
     setLoading(true);
     const supabase = createClient();
@@ -340,6 +357,11 @@ export function ChatWindow() {
       .order("created_at", { ascending: true });
 
     if (loadError || !data || data.length === 0) {
+      await bootstrap();
+      return;
+    }
+    const lastAt = new Date(data[data.length - 1].created_at).getTime();
+    if (Date.now() - lastAt > SESSION_MAX_QUIET_HOURS * 3600_000) {
       await bootstrap();
       return;
     }
@@ -370,11 +392,22 @@ export function ChatWindow() {
       window.localStorage.setItem(STORAGE_KEY, data.conversationId);
       setConversationId(data.conversationId);
       setMessages([data.message]);
+      setAnsweredKeys(new Set());
+      prefetchRef.current = null;
+      hintedRef.current.clear();
+      sessionStats.current = { reviewed: 0, correct: 0 };
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start the chat.");
     } finally {
       setLoading(false);
     }
+  }
+
+  // Manual fresh start (menu -> New session). The old conversation stays
+  // stored; the tutor's durable memory is in the DB either way.
+  function startNewSession() {
+    window.localStorage.removeItem(STORAGE_KEY);
+    bootstrap();
   }
 
   function appendLocalMessage(content: string, widgets: Widget[] = []): string {
@@ -1035,12 +1068,12 @@ export function ChatWindow() {
       <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
         {/* V2 owns its shell: the logo is the app menu (log out, old app). */}
         <div className="hidden lg:block absolute top-4 left-4 z-10">
-          <AccountMenu triggerClassName="h-9 w-9" />
+          <AccountMenu triggerClassName="h-9 w-9" onNewSession={startNewSession} />
         </div>
 
         {/* Mobile top bar: menu, mini progress, and the panel behind a sheet */}
         <div className="lg:hidden flex items-center gap-3 px-3 py-2">
-          <AccountMenu triggerClassName="h-8 w-8" />
+          <AccountMenu triggerClassName="h-8 w-8" onNewSession={startNewSession} />
           <div className="flex-1 h-1.5 rounded-full bg-gray-200/70 overflow-hidden">
             <div
               className="h-full bg-green-500 rounded-full transition-all duration-700"
