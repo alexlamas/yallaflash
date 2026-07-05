@@ -378,6 +378,16 @@ export function TopNav() {
               >
                 Home
               </MobileNavLink>
+              {/* V2 chat is admin-gated while it bakes, matching desktop. */}
+              {isAdmin && (
+                <MobileNavLink
+                  active={pathname === "/chat"}
+                  icon={ChatCircle}
+                  onClick={() => handleNavigate("/chat")}
+                >
+                  Chat
+                </MobileNavLink>
+              )}
               <MobileNavLink
                 active={pathname === "/my-words"}
                 icon={CardsThree}
