@@ -1,3 +1,7 @@
+"use client";
+
+import { Check, X } from "lucide-react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { Widget } from "@/app/v2/lib/types";
@@ -13,6 +17,7 @@ function relativeTime(iso: string): string {
 }
 
 export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "review_verdict" }> }) {
+  const reduceMotion = useReducedMotion();
   const heading = widget.conceded
     ? "Answer revealed"
     : widget.correct
@@ -20,6 +25,7 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
       ? "Correct -- with a hint"
       : "Correct"
     : "Not quite";
+  const Icon = widget.correct ? Check : X;
   return (
     <Card
       className={cn(
@@ -27,21 +33,34 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
         widget.correct ? "bg-green-50/70 border-green-200" : "bg-red-50/60 border-red-200"
       )}
     >
-      <CardContent className="p-5 text-center space-y-1.5">
+      <CardContent className="p-5 text-center space-y-2">
+        {/* The verdict moment: icon springs in, label sits beside it. Small on
+            purpose -- the word below is what should stick, not the grade. */}
         <div
           className={cn(
-            "text-xs font-semibold tracking-wide uppercase",
+            "flex items-center justify-center gap-1.5",
             widget.correct ? "text-green-700" : "text-red-600"
           )}
         >
-          {heading}
+          <motion.span
+            initial={reduceMotion ? false : { scale: 0.25, opacity: 0, filter: "blur(4px)" }}
+            animate={{ scale: 1, opacity: 1, filter: "blur(0px)" }}
+            transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+            className={cn(
+              "flex h-5 w-5 items-center justify-center rounded-full",
+              widget.correct ? "bg-green-600" : "bg-red-500"
+            )}
+          >
+            <Icon className="h-3.5 w-3.5 text-white" strokeWidth={3} aria-hidden="true" />
+          </motion.span>
+          <span className="text-xs font-semibold tracking-wide uppercase">{heading}</span>
         </div>
         {widget.image_url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={widget.image_url}
             alt=""
-            className="h-20 w-20 rounded-xl object-cover mx-auto"
+            className="h-20 w-20 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
           />
         )}
         {widget.script && (
@@ -53,11 +72,14 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
           {widget.arabizi} <span className="text-subtle font-normal">— {widget.english}</span>
         </div>
         {!widget.correct && !widget.conceded && widget.submitted && (
-          <div className="text-xs text-subtle">You said: {widget.submitted}</div>
+          <div className="text-xs text-subtle">
+            You said <span className="line-through decoration-red-300 decoration-1">{widget.submitted}</span>
+          </div>
         )}
-        <div className="text-[11px] font-mono text-disabled pt-1">
-          {/* Instant verdicts render before the schedule write returns;
-              the real date is patched in a moment later. */}
+        {/* Telemetry voice, matching the progress panel's microlabels. Instant
+            verdicts render before the schedule write returns; the real date is
+            patched in a moment later. */}
+        <div className="pt-1 font-mono text-[10px] tracking-[0.12em] uppercase text-disabled tabular-nums">
           next review {widget.next_review_date ? relativeTime(widget.next_review_date) : "..."}
         </div>
       </CardContent>

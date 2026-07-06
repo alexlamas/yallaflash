@@ -25,7 +25,11 @@ export function WordCard({
         <img
           src={imageUrl}
           alt={word.english}
-          className={active ? "w-full h-44 object-cover" : "w-full h-36 object-cover"}
+          className={
+            active
+              ? "w-full h-44 object-cover outline outline-1 -outline-offset-1 outline-black/10"
+              : "w-full h-36 object-cover outline outline-1 -outline-offset-1 outline-black/10"
+          }
         />
       )}
       <CardContent className={active ? "p-7 space-y-1 text-center" : "p-4 space-y-1"}>
