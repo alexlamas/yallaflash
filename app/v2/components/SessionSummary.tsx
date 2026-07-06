@@ -1,5 +1,10 @@
+"use client";
+
+import { useState } from "react";
+import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { track } from "@/app/v2/lib/analytics";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Only the aggregate is known ({reviewed, correct}), so the bar shows
@@ -18,6 +23,13 @@ function headline(reviewed: number, correct: number): string {
 export function SessionSummary({ widget }: { widget: Extract<Widget, { type: "session_summary" }> }) {
   const { reviewed, correct } = widget;
   const cells = reviewed > 0 && reviewed <= MAX_CELLS ? reviewed : 0;
+  const [rated, setRated] = useState<"up" | "down" | null>(null);
+
+  const rate = (rating: "up" | "down") => {
+    if (rated) return;
+    setRated(rating);
+    track("v2_session_rated", { rating, reviewed, correct });
+  };
 
   return (
     <Card className="w-full max-w-md mx-auto rounded-2xl">
@@ -60,6 +72,31 @@ export function SessionSummary({ widget }: { widget: Extract<Widget, { type: "se
             />
           </div>
         ) : null}
+        {/* One-tap session rating: the loop's qualitative signal. Quiet by
+            design -- skippable, no follow-up, thanks and done. */}
+        <div className="pt-1 border-t border-gray-100">
+          {rated ? (
+            <div className="text-xs text-subtle pt-2">Noted -- thanks!</div>
+          ) : (
+            <div className="flex items-center justify-center gap-2 pt-2 text-xs text-subtle">
+              How was this session?
+              <button
+                onClick={() => rate("up")}
+                aria-label="Good session"
+                className="relative h-7 w-7 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:text-green-600 hover:border-green-300 hover:bg-green-50 transition-[color,background-color,border-color,transform] active:scale-[0.96] before:absolute before:-inset-1.5 before:content-['']"
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => rate("down")}
+                aria-label="Rough session"
+                className="relative h-7 w-7 rounded-full border border-gray-200 flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-[color,background-color,border-color,transform] active:scale-[0.96] before:absolute before:-inset-1.5 before:content-['']"
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

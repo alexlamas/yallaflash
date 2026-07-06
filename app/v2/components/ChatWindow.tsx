@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
+import { track } from "@/app/v2/lib/analytics";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
@@ -665,11 +666,13 @@ export function ChatWindow() {
 
   function handleSubmit() {
     if (attachedImage) {
+      track("v2_message_sent", { with_image: true });
       extractFromImage();
       return;
     }
     const text = input;
     setInput("");
+    track("v2_message_sent", { with_image: false });
     sendMessage(text);
   }
 
@@ -712,6 +715,7 @@ export function ChatWindow() {
       ]);
       sessionStats.current.reviewed += 1;
       if (instant) sessionStats.current.correct += 1;
+      track("v2_word_reviewed", { tier, correct: instant, hinted, method: "instant" });
       // Auto-advance: the next card lands in the same beat (prefetched, so
       // ~instant); the verdict stays visible above it as status.
       serveNext(wordId);
@@ -757,6 +761,7 @@ export function ChatWindow() {
       setChecking(false);
       sessionStats.current.reviewed += 1;
       if (result.correct) sessionStats.current.correct += 1;
+      track("v2_word_reviewed", { tier, correct: result.correct, hinted, method: "checked" });
       serveNext(wordId);
       await sendMessage(
         `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
@@ -895,6 +900,9 @@ export function ChatWindow() {
       if (data.done || !data.message) {
         const stats = sessionStats.current;
         sessionStats.current = { reviewed: 0, correct: 0 };
+        if (stats.reviewed > 0) {
+          track("v2_session_completed", { reviewed: stats.reviewed, correct: stats.correct });
+        }
         appendLocalMessage(
           stats.reviewed > 0
             ? "Queue cleared -- that's everything due."
@@ -991,6 +999,7 @@ export function ChatWindow() {
         ]);
       }
       sessionStats.current.reviewed += 1;
+      track("v2_word_reviewed", { tier: widget.tier, correct: false, conceded: true });
       serveNext(widget.word_id);
       await sendMessage(
         `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
@@ -1240,7 +1249,10 @@ export function ChatWindow() {
                   >
                     {dueNow > 0 ? (
                       <button
-                        onClick={() => serveNext()}
+                        onClick={() => {
+                          track("v2_hero_cta_clicked", { action: "start_review", due: dueNow });
+                          serveNext();
+                        }}
                         disabled={loading}
                         className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                       >
@@ -1249,14 +1261,20 @@ export function ChatWindow() {
                     ) : (
                       <>
                         <button
-                          onClick={learnNewWords}
+                          onClick={() => {
+                            track("v2_hero_cta_clicked", { action: "learn_new", due: dueNow });
+                            learnNewWords();
+                          }}
                           disabled={loading}
                           className="rounded-full bg-green-600 hover:bg-green-700 text-white px-7 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                         >
                           Learn something new
                         </button>
                         <button
-                          onClick={() => serveNext(undefined, { ahead: true })}
+                          onClick={() => {
+                            track("v2_hero_cta_clicked", { action: "review_ahead", due: dueNow });
+                            serveNext(undefined, { ahead: true });
+                          }}
                           disabled={loading}
                           className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                         >
@@ -1265,7 +1283,10 @@ export function ChatWindow() {
                       </>
                     )}
                     <button
-                      onClick={() => sendMessage("I want to add some new words")}
+                      onClick={() => {
+                        track("v2_hero_cta_clicked", { action: "add_words", due: dueNow });
+                        sendMessage("I want to add some new words");
+                      }}
                       disabled={loading}
                       className="rounded-full bg-white border border-gray-200 text-heading hover:bg-gray-50 px-6 py-3 text-base font-medium shadow-sm transition-[background-color,transform] active:scale-[0.96] disabled:opacity-50"
                     >
