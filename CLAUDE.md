@@ -174,6 +174,13 @@ Monthly AI credit system for sentence generation:
 - `useAIUsage` hook for checking remaining credits
 - `/api/ai-usage` endpoint for usage data
 
+## Native App (Capacitor)
+
+The iOS/Android app packages the V2 tutor experience as a static export in a
+Capacitor shell; the API stays on Vercel and is called cross-origin with a
+Supabase bearer token. See `docs/NATIVE_APP.md` for the full architecture and
+build steps (`npm run cap:sync`, then Xcode/Android Studio).
+
 ## Development
 
 ```bash

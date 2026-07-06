@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getApiAuth } from "@/utils/supabase/api";
 import { handleApiError, validateRequest } from "@/app/api/utils";
 
 type StartPackRequest = {
@@ -9,8 +8,7 @@ type StartPackRequest = {
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createClient(cookies());
-    const { data: { user } } = await supabase.auth.getUser();
+    const { supabase, user } = await getApiAuth(req);
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }

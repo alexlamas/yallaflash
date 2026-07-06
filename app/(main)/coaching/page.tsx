@@ -1,27 +1,42 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { createClient } from "@/utils/supabase/server";
-import { hasV2Access } from "@/app/v2/lib/access";
+import { apiJSON } from "@/app/v2/lib/api";
 import { DEFAULT_TUTOR_INSTRUCTIONS } from "@/app/v2/lib/tutorPrompt";
 import { InstructionsEditor } from "@/app/v2/components/InstructionsEditor";
+import { V2Gate } from "@/app/v2/components/V2Gate";
 
 // The permanent surface for the tutor's editable memory -- what new users
 // see at onboarding, existing users find here (menu -> Coaching).
-export default async function CoachingPage() {
-  const supabase = await createClient(cookies());
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/");
-  if (!(await hasV2Access(supabase, user.id))) redirect("/");
+export default function CoachingPage() {
+  return (
+    <V2Gate>
+      <CoachingContent />
+    </V2Gate>
+  );
+}
 
-  const { data: settings } = await supabase
-    .from("v2_user_settings")
-    .select("tutor_instructions")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  const instructions = settings?.tutor_instructions?.trim() || DEFAULT_TUTOR_INSTRUCTIONS;
+function CoachingContent() {
+  const [instructions, setInstructions] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // POST {} reads the current effective instructions (defaults until the
+    // user customizes); fall back to the defaults if the read fails.
+    apiJSON<{ instructions: string }>("/api/v2/settings", {})
+      .then((data) => {
+        if (!cancelled) setInstructions(data.instructions || DEFAULT_TUTOR_INSTRUCTIONS);
+      })
+      .catch(() => {
+        if (!cancelled) setInstructions(DEFAULT_TUTOR_INSTRUCTIONS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="min-h-[100dvh] bg-gradient-to-b from-green-50/60 via-white to-white">
@@ -42,7 +57,7 @@ export default async function CoachingPage() {
           them on every message, and rewrites them itself when you ask for a lasting change (&quot;skip the
           root explanations&quot;). Edit them directly here.
         </p>
-        <InstructionsEditor initial={instructions} standalone />
+        {instructions !== null && <InstructionsEditor initial={instructions} standalone />}
       </main>
     </div>
   );

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
+import { apiFetch, apiJSON as fetchJSON } from "@/app/v2/lib/api";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
@@ -63,24 +64,6 @@ let localIdCounter = 0;
 function nextLocalId() {
   localIdCounter += 1;
   return `local-${localIdCounter}`;
-}
-
-// Fetches JSON and throws with the API's own error message on a non-2xx
-// response, instead of letting callers hand a broken body to setState.
-async function fetchJSON<T>(url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: body === undefined ? "GET" : "POST",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const raw = data && (data as { error?: unknown }).error;
-    const message =
-      typeof raw === "string" ? raw : raw ? JSON.stringify(raw) : `Request to ${url} failed (${res.status})`;
-    throw new Error(message);
-  }
-  return data as T;
 }
 
 // Longest side Claude's vision handles well; bigger is wasted upload.
@@ -146,7 +129,7 @@ function AccountMenu({
   // Admin test tools: become a brand-new user (snapshot saved locally),
   // then restore the real data afterwards.
   async function testAsNewUser() {
-    const res = await fetch("/api/v2/dev/reset", { method: "POST" });
+    const res = await apiFetch("/api/v2/dev/reset", { method: "POST" });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.snapshot) {
       window.alert("Reset failed -- nothing was changed.");
@@ -163,7 +146,7 @@ function AccountMenu({
       window.alert("No snapshot found in this browser.");
       return;
     }
-    const res = await fetch("/api/v2/dev/restore", {
+    const res = await apiFetch("/api/v2/dev/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ snapshot: JSON.parse(raw) }),
@@ -296,7 +279,7 @@ export function ChatWindow() {
   // One shared progress fetch for the sidebar, mobile bar, sheet, and hero.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/v2/progress")
+    apiFetch("/api/v2/progress")
       .then((res) => (res.ok ? res.json() : null))
       .then((result: ProgressData | null) => {
         if (!cancelled && result) setProgressData(result);
