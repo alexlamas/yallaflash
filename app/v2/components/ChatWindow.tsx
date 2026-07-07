@@ -246,6 +246,8 @@ export function ChatWindow() {
   const sessionStats = useRef({ reviewed: 0, correct: 0 });
   const [progressKey, setProgressKey] = useState(0);
   const [progressData, setProgressData] = useState<ProgressData | null>(null);
+  // Controlled so panel actions can close the drawer before the chat replies.
+  const [progressOpen, setProgressOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   // Interactions are tracked here (not just inside widget components) so the
   // chips bar knows whether the newest interactive widget is still waiting.
@@ -956,6 +958,11 @@ export function ChatWindow() {
       return;
     }
     setError(null);
+    // Advancing makes any in-flight commentary about the PREVIOUS word --
+    // hide its typing indicator now instead of letting it linger under the
+    // new card. The reply itself still lands (spliced above this card by
+    // sendMessage's race guard).
+    setCommentaryPending(false);
 
     const cached = prefetchRef.current;
     if (!ahead && cached && cached.word_id !== excludeWordId) {
@@ -1300,7 +1307,7 @@ export function ChatWindow() {
           <span className="text-xs font-mono text-subtle tabular-nums">{progressPercent}%</span>
           {/* Bottom drawer (drag-to-dismiss) rather than a side sheet --
               the native pattern for supplementary panels on phones. */}
-          <Drawer>
+          <Drawer open={progressOpen} onOpenChange={setProgressOpen}>
             <DrawerTrigger asChild>
               <button
                 onClick={() => tapHaptic()}
@@ -1316,7 +1323,13 @@ export function ChatWindow() {
             >
               <DrawerTitle className="sr-only">Progress</DrawerTitle>
               <div className="flex-1 min-h-0">
-                <ProgressPanel data={progressData} />
+                <ProgressPanel
+                  data={progressData}
+                  onPrompt={(text) => {
+                    setProgressOpen(false);
+                    void sendMessage(text);
+                  }}
+                />
               </div>
             </DrawerContent>
           </Drawer>
@@ -1585,7 +1598,7 @@ export function ChatWindow() {
       </div>
 
       <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-gray-50/60">
-        <ProgressPanel data={progressData} />
+        <ProgressPanel data={progressData} onPrompt={(text) => void sendMessage(text)} />
       </aside>
     </div>
     </MotionConfig>
