@@ -144,84 +144,149 @@ export async function POST(req: Request) {
       }
     }
 
-    const widgets: Widget[] = [];
-    let finalText = "";
-    let lastStopReason: string | null = null;
+    // Hint-leak guard state is needed BEFORE the loop when streaming: raw
+    // deltas must be scrubbed as they're emitted, not just in the stored row.
+    const openCard = findOpenCard(rows);
 
-    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const response = await anthropic.messages.create({
-        model: MODEL,
-        // Must fit a propose_words call for a long pasted list -- at 1024 the
-        // tool_use block gets truncated and silently dropped, so the reply
-        // text lands without its widget.
-        max_tokens: 4096,
-        system,
-        tools,
-        messages,
-      });
+    // The tool loop, shared by both response modes. onText receives the
+    // accumulated text of the CURRENT model call -- a later iteration's text
+    // replaces an earlier one's (same overwrite semantics as before).
+    const runLoop = async (onText?: (accumulated: string) => void) => {
+      const widgets: Widget[] = [];
+      let finalText = "";
+      let lastStopReason: string | null = null;
 
-      lastStopReason = response.stop_reason;
-      const toolUseBlocks = response.content.filter(
-        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-      );
-      finalText = response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === "text")
-        .map((block) => block.text)
-        .join("\n");
+      for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+        const stream = anthropic.messages.stream({
+          model: MODEL,
+          // Must fit a propose_words call for a long pasted list -- at 1024 the
+          // tool_use block gets truncated and silently dropped, so the reply
+          // text lands without its widget.
+          max_tokens: 4096,
+          system,
+          tools,
+          messages,
+        });
 
-      if (toolUseBlocks.length === 0) break;
-
-      messages.push({ role: "assistant", content: response.content });
-
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of toolUseBlocks) {
-        // A tool failure (bad input, transient DB error) goes back to the
-        // model as an error result it can react to, instead of 500ing the
-        // whole turn.
-        try {
-          const { result, widget } = await executeTool(ctx, block.name, block.input as Record<string, unknown>);
-          if (widget) widgets.push(widget);
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: JSON.stringify(result),
-          });
-        } catch (error) {
-          console.error(`[v2/chat] tool ${block.name}`, error);
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: errorMessage(error),
-            is_error: true,
+        if (onText) {
+          let accumulated = "";
+          stream.on("text", (delta) => {
+            accumulated += delta;
+            onText(accumulated);
           });
         }
+
+        const response = await stream.finalMessage();
+
+        lastStopReason = response.stop_reason;
+        const toolUseBlocks = response.content.filter(
+          (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
+        );
+        finalText = response.content
+          .filter((block): block is Anthropic.TextBlock => block.type === "text")
+          .map((block) => block.text)
+          .join("\n");
+
+        if (toolUseBlocks.length === 0) break;
+
+        messages.push({ role: "assistant", content: response.content });
+
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        for (const block of toolUseBlocks) {
+          // A tool failure (bad input, transient DB error) goes back to the
+          // model as an error result it can react to, instead of 500ing the
+          // whole turn.
+          try {
+            const { result, widget } = await executeTool(ctx, block.name, block.input as Record<string, unknown>);
+            if (widget) widgets.push(widget);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: JSON.stringify(result),
+            });
+          } catch (error) {
+            console.error(`[v2/chat] tool ${block.name}`, error);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: errorMessage(error),
+              is_error: true,
+            });
+          }
+        }
+        messages.push({ role: "user", content: toolResults });
+
+        if (response.stop_reason !== "tool_use") break;
       }
-      messages.push({ role: "user", content: toolResults });
 
-      if (response.stop_reason !== "tool_use") break;
+      return { widgets, finalText, lastStopReason };
+    };
+
+    // Everything after the loop: max-tokens note, usage, leak guards,
+    // persistence. Shared by both response modes.
+    const finishTurn = async (loopResult: {
+      widgets: Widget[];
+      finalText: string;
+      lastStopReason: string | null;
+    }) => {
+      let { finalText } = loopResult;
+      const { widgets, lastStopReason } = loopResult;
+
+      // A truncated response can silently drop an incomplete tool_use block --
+      // if that killed the widget, at least tell the user what to do about it.
+      if (lastStopReason === "max_tokens" && widgets.length === 0) {
+        finalText = `${finalText}\n\nThat ran longer than I can handle in one go -- try pasting fewer words at a time.`.trim();
+      }
+
+      await incrementUsage(user.id, supabase);
+
+      // Hint-leak guard: while a served card is unanswered, a word_card for
+      // that word (e.g. from get_word_detail during a hint) would reveal the
+      // hidden side. Strip it deterministically -- prompts alone don't hold.
+      const safeWidgets = widgets.filter(
+        (w) => !(w.type === "word_card" && openCard && w.word.id === openCard.wordId)
+      );
+      // Same guard for the reply text: the model's natural way to reference the
+      // open card ("the 'l leyle' card is still waiting") names it by exactly
+      // the side the card is quizzing. Swap the hidden side for the shown one.
+      if (openCard) finalText = scrubOpenCardAnswer(finalText, openCard);
+
+      return insertMessage(supabase, conversationId, "assistant", finalText, safeWidgets);
+    };
+
+    // Streaming mode (opt-in via Accept header): text deltas ride an SSE
+    // stream as full-replace snapshots -- each event carries the whole text
+    // so far, already scrubbed, so a delta can never leak the open card's
+    // answer and iteration overwrites need no client bookkeeping.
+    if (req.headers.get("accept") === "text/event-stream") {
+      const encoder = new TextEncoder();
+      const readable = new ReadableStream({
+        async start(controller) {
+          const send = (event: Record<string, unknown>) =>
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          try {
+            const loopResult = await runLoop((accumulated) => {
+              send({ type: "text", partial: streamSafeText(accumulated, openCard) });
+            });
+            const assistantMessage = await finishTurn(loopResult);
+            send({ type: "done", conversationId, message: assistantMessage });
+          } catch (error) {
+            console.error("[v2/chat]", error);
+            send({ type: "error", error: `Chat failed: ${errorMessage(error)}` });
+          }
+          controller.close();
+        },
+      });
+      return new Response(readable, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
     }
 
-    // A truncated response can silently drop an incomplete tool_use block --
-    // if that killed the widget, at least tell the user what to do about it.
-    if (lastStopReason === "max_tokens" && widgets.length === 0) {
-      finalText = `${finalText}\n\nThat ran longer than I can handle in one go -- try pasting fewer words at a time.`.trim();
-    }
-
-    await incrementUsage(user.id, supabase);
-
-    // Hint-leak guard: while a served card is unanswered, a word_card for
-    // that word (e.g. from get_word_detail during a hint) would reveal the
-    // hidden side. Strip it deterministically -- prompts alone don't hold.
-    const openCard = findOpenCard(rows);
-    const safeWidgets = widgets.filter(
-      (w) => !(w.type === "word_card" && openCard && w.word.id === openCard.wordId)
-    );
-    // Same guard for the reply text: the model's natural way to reference the
-    // open card ("the 'l leyle' card is still waiting") names it by exactly
-    // the side the card is quizzing. Swap the hidden side for the shown one.
-    if (openCard) finalText = scrubOpenCardAnswer(finalText, openCard);
-
-    const assistantMessage = await insertMessage(supabase, conversationId, "assistant", finalText, safeWidgets);
+    const assistantMessage = await finishTurn(await runLoop());
     return NextResponse.json({ conversationId, message: assistantMessage });
   } catch (error) {
     // V2 is in active development for personal use: log the real error to
@@ -230,6 +295,25 @@ export async function POST(req: Request) {
     console.error("[v2/chat]", error);
     return NextResponse.json({ error: `Chat failed: ${errorMessage(error)}` }, { status: 500 });
   }
+}
+
+// Streaming-safe view of in-flight text: scrub completed mentions of the open
+// card's hidden side, and hold back any trailing PARTIAL match so the answer
+// can't flash on screen for a frame before the scrub catches it. Because
+// events are full-replace snapshots, held-back text is emitted (or scrubbed)
+// by a later snapshot -- nothing is lost.
+function streamSafeText(text: string, card: OpenCard | null): string {
+  if (!card || !card.hidden.trim()) return text;
+  const lower = text.toLowerCase();
+  const hidden = card.hidden.toLowerCase();
+  let cut = text.length;
+  for (let k = Math.min(hidden.length - 1, lower.length); k > 0; k--) {
+    if (lower.endsWith(hidden.slice(0, k))) {
+      cut = text.length - k;
+      break;
+    }
+  }
+  return scrubOpenCardAnswer(text.slice(0, cut), card);
 }
 
 // The word on the table: the most recent [SERVED] card with no later
