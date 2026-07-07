@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `arabic-flashcards-${CACHE_VERSION}`;
 const OFFLINE_PAGE = '/';
 
@@ -53,6 +53,10 @@ self.addEventListener('fetch', (event) => {
 
   // Skip non-GET requests
   if (request.method !== 'GET') return;
+
+  // Never cache in local development -- stale JS/CSS chunks break pages
+  // after rebuilds.
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return;
 
   // Skip if matches skip patterns
   if (SKIP_PATTERNS.some(pattern => pattern.test(request.url))) return;
