@@ -72,7 +72,10 @@ export async function POST(req: Request) {
       {
         user_id: user.id,
         word_id: wordId,
-        status: rating >= 2 ? "learned" : "learning",
+        // The ladder must pass through typed recall: a lucky multiple-choice
+        // click (easy tier) proves recognition, not knowledge -- "learned"
+        // is only earned by a full success on medium or hard.
+        status: rating >= 2 && tier !== "easy" ? "learned" : "learning",
         interval,
         ease_factor: easeFactor,
         review_count: (progress?.review_count ?? 0) + 1,

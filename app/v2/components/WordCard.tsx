@@ -1,5 +1,6 @@
 /* eslint-disable @next/next/no-img-element */
 import { Card, CardContent } from "@/components/ui/card";
+import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import type { Widget } from "@/app/v2/lib/types";
 
 type WordCardWidget = Extract<Widget, { type: "word_card" }>;
@@ -34,12 +35,12 @@ export function WordCard({
       )}
       <CardContent className={active ? "p-7 space-y-1 text-center" : "p-4 space-y-1"}>
         {word.script && (
-          <div className={active ? "text-4xl" : "text-2xl"} dir="rtl">
+          <div className={active ? "text-4xl" : "text-2xl"} dir={DEFAULT_LANGUAGE.scriptDir}>
             {word.script}
           </div>
         )}
         <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>{word.arabizi}</div>
-        <div className="text-sm text-muted-foreground">{word.english}</div>
+        <div className="text-sm text-subtle">{word.english}</div>
         {word.memory_hook && (
           <div className="text-xs text-subtle pt-1 border-t mt-2">{word.memory_hook}</div>
         )}

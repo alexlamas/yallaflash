@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { gradeDeterministic } from "./gradingCore";
+import { DEFAULT_LANGUAGE } from "./language";
 
 // The pure matching logic lives in gradingCore (shared with the client's
 // instant-verdict path); this module adds the model fallback for the cases
@@ -50,7 +51,7 @@ export async function gradeColdRecall(
   if (certain !== null) return certain;
 
   return askYesNo(
-    `Expected Lebanese Arabic arabizi spelling: "${expectedArabizi}"\nUser's answer: "${submitted}"\n\nIs the user's answer a minor typo or acceptable alternate spelling of the SAME word (not a different word)? Reply with exactly one word: yes or no.`
+    `Expected ${DEFAULT_LANGUAGE.name} ${DEFAULT_LANGUAGE.romanization} spelling: "${expectedArabizi}"\nUser's answer: "${submitted}"\n\nIs the user's answer a minor typo or acceptable alternate spelling of the SAME word (not a different word)? Reply with exactly one word: yes or no.`
   );
 }
 
@@ -73,6 +74,6 @@ export async function gradeRecognition(
   if (certain !== null) return certain;
 
   return askYesNo(
-    `A learner was asked the English meaning of a Lebanese Arabic word.\nAccepted meaning: "${expectedEnglish}"\nTheir answer: "${submitted}"\n\nDoes their answer express the same meaning? Allow synonyms and minor typos; reject different meanings. Reply with exactly one word: yes or no.`
+    `A learner was asked the English meaning of a ${DEFAULT_LANGUAGE.name} word.\nAccepted meaning: "${expectedEnglish}"\nTheir answer: "${submitted}"\n\nDoes their answer express the same meaning? Allow synonyms and minor typos; reject different meanings. Reply with exactly one word: yes or no.`
   );
 }
