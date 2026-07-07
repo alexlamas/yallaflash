@@ -17,6 +17,7 @@ import Script from "next/script";
 import { PublicFooter } from "./PublicFooter";
 import { DottedGlowBackground } from "@/components/ui/dotted-glow-background";
 import { StarterPackService, StarterPack, PackWord } from "../services/starterPackService";
+import { hideSplash } from "@/app/v2/lib/native";
 import { useFeatureFlagEnabled } from "posthog-js/react";
 import posthog from "posthog-js";
 
@@ -58,6 +59,11 @@ export function LandingPage() {
   useEffect(() => {
     const timer = setTimeout(() => setShowChevron(true), 3000);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Signed-out native boot lands here; the splash waits for a real screen.
+  useEffect(() => {
+    hideSplash();
   }, []);
   const carouselRef = useRef<HTMLDivElement>(null);
   const [isCarouselPaused, setIsCarouselPaused] = useState(false);
@@ -221,7 +227,9 @@ export function LandingPage() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
       />
       {/* Simple nav */}
-      <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-3xl px-4">
+      {/* top offset clears the notch in the native app / notched Safari
+          (safe-area-inset is 0 elsewhere) */}
+      <nav className="fixed top-[calc(1rem+env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-50 w-full max-w-3xl px-4">
         <div className="h-12 flex items-center bg-white border border-gray-200 rounded-full shadow-sm px-4 pr-1.5 gap-2">
           <Link href="/" className="flex items-center gap-2">
             <Image

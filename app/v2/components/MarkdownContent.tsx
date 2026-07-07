@@ -6,7 +6,9 @@ import remarkBreaks from "remark-breaks";
 // replies are written line-by-line, not as reflowable paragraphs.
 export function MarkdownContent({ text }: { text: string }) {
   return (
-    <div className="text-sm text-heading space-y-2 break-words">
+    // select-text: the native shell disables selection app-wide; tutor
+    // messages stay copyable (learners grab Arabic script from replies).
+    <div className="text-sm text-heading space-y-2 break-words select-text">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         components={{

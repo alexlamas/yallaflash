@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { hasV2Access } from "@/app/v2/lib/access";
+import { hideSplash } from "@/app/v2/lib/native";
 
 // Client-side replacement for the server-side cookies()+redirect gate the V2
 // pages used to have. Runs on the browser session, so the same pages work in
@@ -34,6 +35,11 @@ export function V2Gate({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [router, isNativeApp]);
+
+  // Whatever the verdict renders (chat or the notice), the boot is over.
+  useEffect(() => {
+    if (state !== "checking") hideSplash();
+  }, [state]);
 
   if (state === "denied") {
     return (

@@ -3,6 +3,11 @@ import tailwindcssAnimate from "tailwindcss-animate";
 
 const config: Config = {
   darkMode: ["class"],
+  future: {
+    // hover: styles only where a real pointer exists -- stops tapped buttons
+    // sticking in their hover state on touch screens (native app + mobile web).
+    hoverOnlyWhenSupported: true,
+  },
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",

@@ -25,7 +25,9 @@ const SERVER_ONLY = [
 
 // Where the packaged app reaches the JSON API (and its Anthropic-backed
 // endpoints). Override for a preview deployment or local dev server.
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://yallaflash.com";
+// Must be the canonical www host: the apex 307-redirects to it, and CORS
+// preflights refuse to follow redirects ("Load failed" on every call).
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "https://www.yallaflash.com";
 
 if (fs.existsSync(STASH)) {
   console.error(
