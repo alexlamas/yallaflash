@@ -5,7 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { DeckFrame } from "./DeckFrame";
 import type { Widget } from "@/app/v2/lib/types";
 
 type ProduceColdWidget = Extract<Widget, { type: "produce_cold" }>;
@@ -34,7 +33,7 @@ export function ProduceCold({
   };
 
   const card = (
-    <Card className={cn(active ? "rounded-2xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
           {widget.cue.english}
@@ -62,5 +61,5 @@ export function ProduceCold({
     </Card>
   );
 
-  return active ? <DeckFrame>{card}</DeckFrame> : card;
+  return card;
 }

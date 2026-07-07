@@ -252,6 +252,9 @@ export function ChatWindow() {
   // The next card, fetched while the user reads the current verdict, so
   // Next word renders with zero wait.
   const prefetchRef = useRef<ReviewWidget | null>(null);
+  // The word just graded -- excluded when the user advances, so a card can't
+  // be re-served before its SRS write lands.
+  const lastReviewedRef = useRef<string | null>(null);
   // Words the user took a hint on -- a hinted correct answer schedules as
   // "struggled", not a full success.
   const hintedRef = useRef<Set<string>>(new Set());
@@ -343,9 +346,25 @@ export function ChatWindow() {
     return null;
   }, [visibleMessages, answeredKeys]);
 
+  // The verdict "landing" screen: after an answer the session parks on the
+  // verdict (no auto-advance), so the tutor's commentary and any explain/
+  // example follow-ups all attach to THIS word. Showing when the newest
+  // widget-bearing message is a verdict and no card is waiting.
+  const verdictIndex = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      const widgets = visibleMessages[i].widgets ?? [];
+      if (widgets.length === 0) continue;
+      return widgets.some((w) => w.type === "review_verdict") ? i : null;
+    }
+    return null;
+  }, [visibleMessages]);
+  const verdictShowing = !pending && verdictIndex !== null;
+
   // The steady view shows only the active exchange: the last assistant
   // message (plus the user message that prompted it), extended back to keep
-  // a still-pending card on screen through hint/question exchanges.
+  // a still-pending card on screen through hint/question exchanges, and a
+  // showing verdict on screen through explain/example follow-ups. The active
+  // view is always ONE word's exchange -- turns never mix.
   const activeStart = useMemo(() => {
     let lastAssistant = -1;
     for (let i = visibleMessages.length - 1; i >= 0; i--) {
@@ -355,29 +374,11 @@ export function ChatWindow() {
       }
     }
     let start = lastAssistant >= 0 ? lastAssistant : 0;
-    // Auto-advance composition: the active view reads [last verdict][its
-    // commentary][new question card]. Walk back over ONE contiguous
-    // commentary+verdict group so the previous word's status stays visible
-    // above the card you're answering; anything older retires to history.
-    let i = start;
-    while (
-      i > 0 &&
-      visibleMessages[i - 1]?.role === "assistant" &&
-      (visibleMessages[i - 1].widgets ?? []).length === 0
-    ) {
-      i -= 1; // trailing commentary (text-only assistant messages)
-    }
-    if (
-      i > 0 &&
-      visibleMessages[i - 1]?.role === "assistant" &&
-      (visibleMessages[i - 1].widgets ?? []).some((w) => w.type === "review_verdict")
-    ) {
-      start = i - 1; // include the verdict (and the commentary walked over)
-    }
     if (pending && pending.messageIndex < start) start = pending.messageIndex;
+    if (!pending && verdictIndex !== null && verdictIndex < start) start = verdictIndex;
     if (start > 0 && visibleMessages[start - 1]?.role === "user") start -= 1;
     return start;
-  }, [visibleMessages, pending]);
+  }, [visibleMessages, pending, verdictIndex]);
 
   const earlierMessages = visibleMessages.slice(0, activeStart);
   const activeMessages = visibleMessages.slice(activeStart);
@@ -395,18 +396,12 @@ export function ChatWindow() {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
       if (pending || loading || checking) return;
-      const last = visibleMessages[visibleMessages.length - 1];
-      const prev = visibleMessages[visibleMessages.length - 2];
-      const verdictShowing =
-        (last?.widgets ?? []).some((w) => w.type === "review_verdict") ||
-        (last?.role === "assistant" &&
-          (prev?.widgets ?? []).some((w) => w.type === "review_verdict"));
-      if (verdictShowing) serveNext();
+      if (verdictShowing) serveNext(lastReviewedRef.current ?? undefined);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, loading, checking, visibleMessages, conversationId]);
+  }, [pending, loading, checking, verdictShowing, conversationId]);
 
   useEffect(() => {
     if (showHistory && scrollRef.current) {
@@ -664,6 +659,9 @@ export function ChatWindow() {
   }
 
   function handleSubmit() {
+    // Typing stays open while the tutor works; sending waits its turn so
+    // two in-flight conversation writes can't interleave.
+    if (loading || checking) return;
     if (attachedImage) {
       extractFromImage();
       return;
@@ -712,9 +710,10 @@ export function ChatWindow() {
       ]);
       sessionStats.current.reviewed += 1;
       if (instant) sessionStats.current.correct += 1;
-      // Auto-advance: the next card lands in the same beat (prefetched, so
-      // ~instant); the verdict stays visible above it as status.
-      serveNext(wordId);
+      // Park on the verdict; the user advances explicitly (chip or Enter).
+      // Warm the next card now so advancing is still instant.
+      lastReviewedRef.current = wordId;
+      prefetchNext(wordId);
       try {
         const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
         refreshProgress();
@@ -757,7 +756,8 @@ export function ChatWindow() {
       setChecking(false);
       sessionStats.current.reviewed += 1;
       if (result.correct) sessionStats.current.correct += 1;
-      serveNext(wordId);
+      lastReviewedRef.current = wordId;
+      prefetchNext(wordId);
       await sendMessage(
         `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
         { background: true }
@@ -991,7 +991,8 @@ export function ChatWindow() {
         ]);
       }
       sessionStats.current.reviewed += 1;
-      serveNext(widget.word_id);
+      lastReviewedRef.current = widget.word_id;
+      prefetchNext(widget.word_id);
       await sendMessage(
         `[REVIEW RESULT] word_id=${widget.word_id} conceded=true correct=false arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
         { background: true }
@@ -1010,7 +1011,7 @@ export function ChatWindow() {
     visibleMessages[0].role === "assistant" &&
     !(visibleMessages[0].widgets ?? []).some((w) => w.type === "onboarding_choice");
 
-  const chips: { label: string; primary?: boolean; onClick: () => void }[] = (() => {
+  const chips: { label: string; kbd?: string; primary?: boolean; onClick: () => void }[] = (() => {
     if (loading || messages.length === 0 || showHero) return [];
     if (pending) {
       if (reviewPending) {
@@ -1036,6 +1037,20 @@ export function ChatWindow() {
         ];
       }
       return [];
+    }
+    // Verdict screen: the user decides when the turn ends. Digging in
+    // (explain, example) keeps the tutor on THIS word; Enter advances.
+    if (verdictShowing) {
+      return [
+        {
+          label: "Next word",
+          kbd: "↵",
+          primary: true,
+          onClick: () => serveNext(lastReviewedRef.current ?? undefined),
+        },
+        { label: "Explain more", onClick: () => sendMessage("Tell me more about this word") },
+        { label: "Give an example", onClick: () => sendMessage("Use it in an example sentence") },
+      ];
     }
     // A brand-new user mid-onboarding has nothing to review yet -- don't
     // offer a chip that can only dead-end.
@@ -1318,6 +1333,17 @@ export function ChatWindow() {
                   )}
                 >
                   {chip.label}
+                  {chip.kbd && (
+                    <kbd
+                      aria-hidden="true"
+                      className={cn(
+                        "ml-1.5 rounded px-1 font-mono text-[10px] font-normal",
+                        chip.primary ? "bg-white/20 text-white/90" : "bg-gray-100 text-subtle"
+                      )}
+                    >
+                      {chip.kbd}
+                    </kbd>
+                  )}
                 </button>
               ))}
             </div>
@@ -1378,16 +1404,15 @@ export function ChatWindow() {
               placeholder={
                 attachedImage
                   ? "Add a note about the photo (optional)..."
-                  : reviewPending
+                  : reviewPending || verdictShowing
                   ? "Ask about this word..."
                   : placeholder
               }
-              disabled={loading}
               className="border-0 shadow-none focus-visible:ring-0 resize-none min-h-[30px] max-h-40 px-0 py-1.5 text-[15px] bg-transparent"
             />
             <button
               onClick={handleSubmit}
-              disabled={loading || (!input.trim() && !attachedImage)}
+              disabled={loading || checking || (!input.trim() && !attachedImage)}
               aria-label="Send"
               className="h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-[background-color,transform] active:scale-[0.96] hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
             >

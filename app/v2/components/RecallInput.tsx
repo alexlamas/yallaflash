@@ -5,7 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { DeckFrame } from "./DeckFrame";
 import type { Widget } from "@/app/v2/lib/types";
 
 type RecallInputWidget = Extract<Widget, { type: "recall_input" }>;
@@ -34,7 +33,7 @@ export function RecallInput({
   };
 
   const card = (
-    <Card className={cn(active ? "rounded-2xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
           <div className={active ? "text-4xl" : "text-2xl"} dir="rtl">
@@ -66,5 +65,5 @@ export function RecallInput({
     </Card>
   );
 
-  return active ? <DeckFrame>{card}</DeckFrame> : card;
+  return card;
 }
