@@ -1,9 +1,8 @@
-import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import { ClaudeService } from "@/app/services/claudeService";
 import { checkAIUsage, incrementUsage } from "@/app/services/aiUsageService";
-import { handleApiError, validateRequest } from "../utils";
+import { validateRequest } from "../utils";
 
 type HintRequest = {
   english: string;
@@ -14,19 +13,17 @@ export async function POST(req: Request) {
   try {
     const supabase = await createClient(cookies());
 
-    // Check authentication
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      return NextResponse.json(
+      return Response.json(
         { error: "Authentication required" },
         { status: 401 }
       );
     }
 
-    // Check AI usage limits
     const usageCheck = await checkAIUsage(user.id);
     if (!usageCheck.allowed) {
-      return NextResponse.json(
+      return Response.json(
         { error: usageCheck.reason, limitReached: true },
         { status: 429 }
       );
@@ -35,7 +32,7 @@ export async function POST(req: Request) {
     const data = await req.json();
 
     if (!validateRequest<HintRequest>(data, ["english", "arabic"])) {
-      return NextResponse.json(
+      return Response.json(
         { error: "Both English and Arabic words are required" },
         { status: 400 }
       );
@@ -59,13 +56,38 @@ Examples of good hints:
 
 Provide ONLY the hint text.`;
 
-    const hint = await ClaudeService.chatCompletion(prompt);
+    const stream = ClaudeService.createStreamingMessage(prompt);
 
-    // Increment usage after successful AI call
-    await incrementUsage(user.id);
+    incrementUsage(user.id);
 
-    return NextResponse.json({ hint });
-  } catch (error) {
-    return handleApiError(error, "Failed to generate hint");
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        const reader = stream.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            controller.enqueue(encoder.encode(value));
+          }
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "Cache-Control": "no-cache",
+      },
+    });
+  } catch {
+    return Response.json(
+      { error: "Failed to generate hint" },
+      { status: 500 }
+    );
   }
 }

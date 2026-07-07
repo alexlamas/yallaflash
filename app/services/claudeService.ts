@@ -22,12 +22,39 @@ export class ClaudeService {
       max_tokens: 1000,
       messages: [{ role: "user", content: prompt }],
     });
-    
+
     if (!message.content || message.content.length === 0) {
       throw new Error("No content in Claude response");
     }
-    
+
     return message.content[0].type === "text" ? message.content[0].text : "";
+  }
+
+  static createStreamingMessage(prompt: string): ReadableStream<string> {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error("ANTHROPIC_API_KEY is not configured");
+    }
+
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          const stream = anthropic.messages.stream({
+            model: MODEL,
+            max_tokens: 1000,
+            messages: [{ role: "user", content: prompt }],
+          });
+
+          stream.on("text", (text) => {
+            controller.enqueue(text);
+          });
+
+          await stream.finalMessage();
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
   }
 
   static async chatCompletion(prompt: string): Promise<string> {
