@@ -1,7 +1,15 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 
 const FREE_MONTHLY_LIMIT = 20;
+
+// Callers that authenticate via bearer token (the native app) pass their own
+// client -- the cookie fallback would run as anon there and RLS would hide
+// the user's rows.
+async function resolveClient(client?: SupabaseClient): Promise<SupabaseClient> {
+  return client ?? (await createClient(cookies()));
+}
 
 /**
  * Get the current period string (YYYY-MM format)
@@ -14,8 +22,8 @@ export function getCurrentPeriod(): string {
 /**
  * Check if a user has an elevated role (admin or reviewer)
  */
-async function hasUnlimitedAccess(userId: string): Promise<boolean> {
-  const supabase = await createClient(cookies());
+async function hasUnlimitedAccess(userId: string, client?: SupabaseClient): Promise<boolean> {
+  const supabase = await resolveClient(client);
 
   const { data, error } = await supabase
     .from("user_roles")
@@ -34,8 +42,8 @@ async function hasUnlimitedAccess(userId: string): Promise<boolean> {
 /**
  * Get current usage count for a user
  */
-export async function getUsageCount(userId: string): Promise<number> {
-  const supabase = await createClient(cookies());
+export async function getUsageCount(userId: string, client?: SupabaseClient): Promise<number> {
+  const supabase = await resolveClient(client);
   const period = getCurrentPeriod();
 
   const { data } = await supabase
@@ -51,13 +59,13 @@ export async function getUsageCount(userId: string): Promise<number> {
 /**
  * Get usage info for a user (count and limit)
  */
-export async function getUsageInfo(userId: string): Promise<{
+export async function getUsageInfo(userId: string, client?: SupabaseClient): Promise<{
   count: number;
   limit: number;
   unlimited: boolean;
 }> {
-  const unlimited = await hasUnlimitedAccess(userId);
-  const count = await getUsageCount(userId);
+  const unlimited = await hasUnlimitedAccess(userId, client);
+  const count = await getUsageCount(userId, client);
 
   return {
     count,
@@ -70,19 +78,19 @@ export async function getUsageInfo(userId: string): Promise<{
  * Check if a user can make an AI request
  * Returns { allowed: true } or { allowed: false, reason: string }
  */
-export async function checkAIUsage(userId: string): Promise<{
+export async function checkAIUsage(userId: string, client?: SupabaseClient): Promise<{
   allowed: boolean;
   reason?: string;
   remaining?: number;
 }> {
   // Check if user has unlimited access (admin/reviewer)
-  const unlimited = await hasUnlimitedAccess(userId);
+  const unlimited = await hasUnlimitedAccess(userId, client);
   if (unlimited) {
     return { allowed: true };
   }
 
   // Check current usage
-  const count = await getUsageCount(userId);
+  const count = await getUsageCount(userId, client);
   const remaining = FREE_MONTHLY_LIMIT - count;
 
   if (count >= FREE_MONTHLY_LIMIT) {
@@ -99,8 +107,8 @@ export async function checkAIUsage(userId: string): Promise<{
 /**
  * Increment usage count after a successful AI request
  */
-export async function incrementUsage(userId: string): Promise<void> {
-  const supabase = await createClient(cookies());
+export async function incrementUsage(userId: string, client?: SupabaseClient): Promise<void> {
+  const supabase = await resolveClient(client);
   const period = getCurrentPeriod();
 
   // Upsert: insert if not exists, increment if exists

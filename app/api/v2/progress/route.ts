@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage } from "@/app/api/utils";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const supabase = await createClient(cookies());
-    const { data: { user } } = await supabase.auth.getUser();
+    const { supabase, user } = await getApiAuth(req);
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }

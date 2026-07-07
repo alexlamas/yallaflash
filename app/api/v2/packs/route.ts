@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getApiAuth } from "@/utils/supabase/api";
 import { handleApiError } from "@/app/api/utils";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const supabase = await createClient(cookies());
+    const { supabase } = await getApiAuth(req);
     const { data, error } = await supabase.from("v2_packs").select("id, language_id, name, description");
     if (error) throw error;
     return NextResponse.json({ packs: data ?? [] });

@@ -1,13 +1,12 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
-import { hasV2Access } from "@/app/v2/lib/access";
+"use client";
+
+import { V2Gate } from "@/app/v2/components/V2Gate";
 import { WordsTable } from "@/app/v2/components/WordsTable";
 
-export default async function WordsPage() {
-  const supabase = await createClient(cookies());
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user || !(await hasV2Access(supabase, user.id))) redirect("/");
-
-  return <WordsTable />;
+export default function WordsPage() {
+  return (
+    <V2Gate>
+      <WordsTable />
+    </V2Gate>
+  );
 }

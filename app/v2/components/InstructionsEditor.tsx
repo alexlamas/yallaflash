@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch } from "@/app/v2/lib/api";
 
 // The user-editable slice of the tutor's behavior, surfaced at onboarding.
 // Saving writes v2_user_settings; the tutor reads it on every turn and can
@@ -25,7 +26,7 @@ export function InstructionsEditor({
   async function save() {
     setError(null);
     try {
-      const res = await fetch("/api/v2/settings", {
+      const res = await apiFetch("/api/v2/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instructions: value }),

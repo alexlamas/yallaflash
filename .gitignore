@@ -22,6 +22,9 @@ e2e/.auth/
 /.next/
 /out/
 
+# native build (scripts/build-native.mjs working dir)
+/.native-stash/
+
 # production
 /build
 

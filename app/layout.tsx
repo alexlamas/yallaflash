@@ -1,8 +1,9 @@
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { Metadata } from "next";
+import { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { GoogleAds } from "./components/GoogleAds";
+import { NativeInit } from "./components/NativeInit";
 import { PostHogProvider } from "./providers/PostHogProvider";
 import "./globals.css";
 import { SchemaOrg } from "./schema";
@@ -55,6 +56,15 @@ const ppHatton = localFont({
   ],
   variable: "--font-pphatton",
 });
+
+// viewport-fit=cover lets the app draw edge-to-edge on notched phones; the
+// .native-app CSS in globals.css pads the safe areas back in. No effect in
+// a regular browser tab.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://yallaflash.com"),
@@ -137,6 +147,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${ppHatton.variable} antialiased min-h-screen`}
       >
+        <NativeInit />
         <PostHogProvider>
           {children}
         </PostHogProvider>

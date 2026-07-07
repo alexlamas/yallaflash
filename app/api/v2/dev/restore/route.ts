@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage } from "@/app/api/utils";
 import { hasV2Access } from "@/app/v2/lib/access";
 
@@ -15,8 +14,7 @@ type RestoreRequest = {
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createClient(cookies());
-    const { data: { user } } = await supabase.auth.getUser();
+    const { supabase, user } = await getApiAuth(req);
     if (!user || !(await hasV2Access(supabase, user.id))) {
       return NextResponse.json({ error: "Not allowed" }, { status: 403 });
     }
