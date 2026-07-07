@@ -30,11 +30,11 @@ export function InstructionsEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instructions: value }),
       });
-      if (!res.ok) throw new Error("Couldn't save -- try again.");
+      if (!res.ok) throw new Error("Couldn't save — try again.");
       setSaved(true);
       if (!standalone) setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save -- try again.");
+      setError(err instanceof Error ? err.message : "Couldn't save — try again.");
     }
   }
 
@@ -42,20 +42,21 @@ export function InstructionsEditor({
     return (
       <div className="inline-flex items-center gap-2 rounded-full border border-green-200 bg-green-50/70 px-4 py-2 text-sm text-green-900">
         <Check className="h-4 w-4 text-green-700" />
-        Coaching style saved -- change it anytime by just asking
+        Coaching style saved — change it anytime by just asking
       </div>
     );
   }
 
   return (
-    <div className="max-w-md overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div className="max-w-md overflow-hidden rounded-2xl border-[0.5px] border-gray-200 bg-white shadow-sm">
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left text-sm hover:bg-gray-50"
       >
         <SlidersHorizontal className="h-4 w-4 text-green-700" />
         <span className="font-medium">How I&apos;ll coach you</span>
-        <span className="ml-auto text-xs text-subtle">{open ? "collapse" : "view & edit"}</span>
+        <span className="ml-auto text-xs text-subtle">{open ? "Collapse" : "View and edit"}</span>
       </button>
       {open && (
         <div className="space-y-2 border-t border-gray-100 p-3.5">
@@ -66,7 +67,7 @@ export function InstructionsEditor({
             className="text-sm"
           />
           <p className="text-xs text-subtle">
-            These are standing instructions the tutor follows -- edit them here, or later just tell it
+            These are standing instructions the tutor follows — edit them here, or later just tell it
             things like &quot;skip the root explanations&quot;.
           </p>
           {error && <p className="text-xs text-red-600">{error}</p>}
@@ -78,7 +79,13 @@ export function InstructionsEditor({
             disabled={!value.trim()}
             className="w-full bg-green-600 hover:bg-green-700"
           >
-            {standalone && saved ? "Saved ✓" : "Save"}
+            {standalone && saved ? (
+              <>
+                Saved <Check className="ml-1 h-4 w-4" />
+              </>
+            ) : (
+              "Save"
+            )}
           </Button>
         </div>
       )}

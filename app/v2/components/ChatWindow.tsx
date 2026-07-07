@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "framer-motion";
 import {
   ArchiveRestore,
   ArrowUp,
@@ -107,7 +107,7 @@ async function downscaleImage(file: File): Promise<string> {
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const el = new Image();
     el.onload = () => resolve(el);
-    el.onerror = () => reject(new Error("Couldn't read that image format -- try a JPG or PNG."));
+    el.onerror = () => reject(new Error("Couldn't read that image format — try a JPG or PNG."));
     el.src = original;
   });
 
@@ -149,7 +149,7 @@ function AccountMenu({
     const res = await fetch("/api/v2/dev/reset", { method: "POST" });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.snapshot) {
-      window.alert("Reset failed -- nothing was changed.");
+      window.alert("Reset failed — nothing was changed.");
       return;
     }
     window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(data.snapshot));
@@ -169,7 +169,7 @@ function AccountMenu({
       body: JSON.stringify({ snapshot: JSON.parse(raw) }),
     });
     if (!res.ok) {
-      window.alert("Restore failed -- your snapshot is still saved in this browser.");
+      window.alert("Restore failed — your snapshot is still saved in this browser.");
       return;
     }
     window.localStorage.removeItem(STORAGE_KEY);
@@ -184,14 +184,14 @@ function AccountMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          aria-label="Menu"
+          aria-label="Account menu"
           className={cn(
             "shrink-0 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm flex items-center justify-center hover:bg-white transition-colors",
             triggerClassName
           )}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="Yalla" className="h-5 w-5" />
+          <img src="/logo.svg" alt="" className="h-5 w-5" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
@@ -412,6 +412,16 @@ export function ChatWindow() {
     }
   }, [showHistory]);
 
+  // A long verdict+commentary+card exchange can extend below the fold
+  // (worst on mobile with the keyboard up) -- keep the newest content in
+  // view whenever the transcript grows or a typing indicator appears.
+  const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
+  }, [visibleMessages.length, loading, checking, commentaryPending, reduceMotion]);
+
   // A conversation is a SESSION, not a lifetime: after this much quiet the
   // next visit starts fresh. Durable knowledge (words, notes, coaching
   // instructions) lives in the DB, not in chat scrollback, so nothing is
@@ -438,15 +448,39 @@ export function ChatWindow() {
     }
     const loaded = data as V2Message[];
     // Which widgets were answered lives only in client state, so on reload
-    // presume every interactive widget with any message after it (including
-    // hidden ground-truth messages) was already handled -- otherwise an old
-    // review card would come back to life and could double-grade.
+    // presume every interactive widget was handled -- EXCEPT the open card:
+    // the newest interactive widget, when it's a review card with no later
+    // [REVIEW RESULT] for its word (the server's own open-card rule).
+    // Background result/commentary rows persist AFTER the next card, so the
+    // naive "anything with a message after it" wrongly disabled live cards.
+    const resultWordIds = new Set<string>();
+    for (const message of loaded) {
+      if (message.role === "user" && message.content.startsWith("[REVIEW RESULT]")) {
+        const match = message.content.match(/word_id=(\S+)/);
+        if (match) resultWordIds.add(match[1]);
+      }
+    }
+    let openKey: string | null = null;
+    outer: for (let i = loaded.length - 1; i >= 0; i--) {
+      const message = loaded[i];
+      if (message.role !== "assistant") continue;
+      const widgets = message.widgets ?? [];
+      for (let j = widgets.length - 1; j >= 0; j--) {
+        const widget = widgets[j];
+        if (!INTERACTIVE_TYPES.has(widget.type)) continue;
+        if (isReviewWidget(widget) && !resultWordIds.has(widget.word_id)) {
+          openKey = `${message.id}:${j}`;
+        }
+        break outer;
+      }
+    }
     const seeded = new Set<string>();
     loaded.forEach((message, index) => {
       if (message.role !== "assistant" || !message.widgets) return;
       if (index === loaded.length - 1) return;
       message.widgets.forEach((widget, j) => {
-        if (INTERACTIVE_TYPES.has(widget.type)) seeded.add(`${message.id}:${j}`);
+        const key = `${message.id}:${j}`;
+        if (INTERACTIVE_TYPES.has(widget.type) && key !== openKey) seeded.add(key);
       });
     });
     syncAnsweredKeys(seeded);
@@ -481,7 +515,11 @@ export function ChatWindow() {
     bootstrap();
   }
 
-  function appendLocalMessage(content: string, widgets: Widget[] = []): string {
+  function appendLocalMessage(
+    content: string,
+    widgets: Widget[] = [],
+    { persist = false } = {}
+  ): string {
     const id = nextLocalId();
     setMessages((prev) => [
       ...prev,
@@ -494,6 +532,14 @@ export function ChatWindow() {
         created_at: new Date().toISOString(),
       },
     ]);
+    // Reload-critical widgets (photo previews, pack lists, pickers) survive
+    // via a background insert; the live session keeps this local copy, and
+    // the reload path picks up the persisted row instead.
+    if (persist && conversationId) {
+      fetchJSON("/api/v2/messages", { conversationId, content, widgets }).catch((err) =>
+        console.error("[appendLocalMessage] persist failed", err)
+      );
+    }
     return id;
   }
 
@@ -528,15 +574,16 @@ export function ChatWindow() {
   // background: true keeps the chips alive while the tutor works -- used for
   // hidden ground-truth messages ([REVIEW RESULT] etc.) whose commentary is
   // a nicety, not something the user should wait on.
-  async function sendMessage(text: string, { background = false } = {}) {
-    if (!text.trim()) return;
+  async function sendMessage(text: string, { background = false } = {}): Promise<boolean> {
+    if (!text.trim()) return false;
     if (background) setCommentaryPending(true);
     else setLoading(true);
     setError(null);
+    const localUserId = nextLocalId();
     setMessages((prev) => [
       ...prev,
       {
-        id: nextLocalId(),
+        id: localUserId,
         conversation_id: conversationId ?? "",
         role: "user",
         content: text,
@@ -571,8 +618,13 @@ export function ChatWindow() {
         }
         return [...prev, data.message];
       });
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "That message didn't send.");
+      // The optimistic bubble would sit there looking sent -- take it back
+      // out; the caller decides how to retry (handleSubmit restores the text).
+      setMessages((prev) => prev.filter((m) => m.id !== localUserId));
+      return false;
     } finally {
       if (background) setCommentaryPending(false);
       else setLoading(false);
@@ -644,8 +696,9 @@ export function ChatWindow() {
         return;
       }
       appendLocalMessage(
-        `Found ${proposals.length} word${proposals.length === 1 ? "" : "s"} in your photo -- confirm to add them:`,
-        [{ type: "add_words_preview", proposals }]
+        `Found ${proposals.length} word${proposals.length === 1 ? "" : "s"} in your photo — confirm to add them:`,
+        [{ type: "add_words_preview", proposals }],
+        { persist: true }
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't read that image.";
@@ -653,7 +706,7 @@ export function ChatWindow() {
       // itself dies (connection drop, body too large) -- neither helps a user.
       setError(
         /load failed|failed to fetch/i.test(message)
-          ? "Upload failed -- check your connection and try again."
+          ? "Upload failed — check your connection and try again."
           : message
       );
     } finally {
@@ -661,7 +714,7 @@ export function ChatWindow() {
     }
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     // Typing stays open while the tutor works; sending waits its turn so
     // two in-flight conversation writes can't interleave.
     if (loading || checking) return;
@@ -671,7 +724,10 @@ export function ChatWindow() {
     }
     const text = input;
     setInput("");
-    sendMessage(text);
+    const ok = await sendMessage(text);
+    // A failed send must not eat the typed message -- put it back (unless
+    // the user already started typing something new).
+    if (!ok) setInput((current) => current || text);
   }
 
   type AnswerResult = {
@@ -689,7 +745,12 @@ export function ChatWindow() {
   // in the background and patches the schedule in when it lands. Only
   // genuinely ambiguous answers (possible synonym, near-miss spelling) wait
   // on the server, behind a visible CHECKING state.
-  async function answerReview(key: string, wordId: string, tier: ReviewTier, submitted: string) {
+  async function answerReview(
+    key: string,
+    wordId: string,
+    tier: ReviewTier,
+    submitted: string
+  ): Promise<boolean> {
     setError(null);
     const widget = widgetForKey(key);
     const review = widget && isReviewWidget(widget) ? widget : null;
@@ -732,8 +793,13 @@ export function ChatWindow() {
         );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save that review.");
+        // The verdict stands visually but nothing was scheduled -- flag it
+        // plainly and take it back out of the session tally.
+        patchVerdict(verdictId, { save_failed: true });
+        sessionStats.current.reviewed -= 1;
+        if (instant) sessionStats.current.correct -= 1;
       }
-      return;
+      return true;
     }
 
     // Ambiguous: the card stays up with a CHECKING state until the model
@@ -765,16 +831,23 @@ export function ChatWindow() {
         `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
         { background: true }
       );
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't grade that answer.");
+      // Nothing was graded or recorded -- the card re-enables so the same
+      // answer can be resubmitted instead of wedging the review.
+      return false;
     } finally {
       setChecking(false);
     }
   }
 
+  // Mutating actions resolve true only when the write lands, so widgets (and
+  // the answered record below) commit on success -- never optimistically.
   const baseActions: WidgetActions = {
-    onAnswer: () => {
+    onAnswer: async () => {
       // Replaced per-widget in actionsFor -- answering needs the widget key.
+      return false;
     },
     onConfirmWords: async (proposals: WordProposal[]) => {
       setError(null);
@@ -789,8 +862,10 @@ export function ChatWindow() {
           : "";
         refreshProgress();
         await sendMessage(`[WORDS CONFIRMED] ${summary || "none added"}${skippedNote}`, { background: true });
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save those words.");
+        return false;
       }
     },
     onChooseOnboarding: async (choice: "add_words" | "browse_packs") => {
@@ -803,7 +878,9 @@ export function ChatWindow() {
       setLoading(true);
       try {
         const data = await fetchJSON<{ packs: V2Pack[] }>("/api/v2/packs");
-        appendLocalMessage("Here's a pack to start with:", [{ type: "pack_list", packs: data.packs }]);
+        appendLocalMessage("Here's a pack to start with:", [{ type: "pack_list", packs: data.packs }], {
+          persist: true,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't load packs.");
       } finally {
@@ -816,8 +893,10 @@ export function ChatWindow() {
         const result = await fetchJSON<{ count: number }>("/api/v2/packs/start", { packId });
         refreshProgress();
         await sendMessage(`[PACK STARTED] added ${result.count} words from the pack, ready whenever you want to test.`);
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't start that pack.");
+        return false;
       }
     },
     onStartWords: async (wordIds: string[]) => {
@@ -832,36 +911,43 @@ export function ChatWindow() {
           { background: true }
         );
         await serveNext();
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't start those words.");
+        return false;
       }
     },
+    onDismiss: () => {},
   };
 
-  // Wrap actions so any interaction marks its widget as answered. Review
-  // answers manage their own answered timing (instant for deterministic
-  // grades, deferred past the CHECKING state for ambiguous ones).
+  // Wrap actions so a SUCCESSFUL interaction marks its widget as answered.
+  // Review answers manage their own answered timing (instant for
+  // deterministic grades, deferred past the CHECKING state for ambiguous
+  // ones); dismissing counts as answered so an unwanted offer stops gating
+  // the chips.
   function actionsFor(key: string): WidgetActions {
     return {
-      onAnswer: (wordId, tier, submitted) => {
-        answerReview(key, wordId, tier, submitted);
-      },
-      onConfirmWords: (proposals) => {
-        recordAnswered(key);
-        baseActions.onConfirmWords(proposals);
+      onAnswer: (wordId, tier, submitted) => answerReview(key, wordId, tier, submitted),
+      onConfirmWords: async (proposals) => {
+        const ok = await baseActions.onConfirmWords(proposals);
+        if (ok) recordAnswered(key);
+        return ok;
       },
       onChooseOnboarding: (choice) => {
         recordAnswered(key);
         baseActions.onChooseOnboarding(choice);
       },
-      onStartPack: (packId) => {
-        recordAnswered(key);
-        baseActions.onStartPack(packId);
+      onStartPack: async (packId) => {
+        const ok = await baseActions.onStartPack(packId);
+        if (ok) recordAnswered(key);
+        return ok;
       },
-      onStartWords: (wordIds) => {
-        recordAnswered(key);
-        baseActions.onStartWords(wordIds);
+      onStartWords: async (wordIds) => {
+        const ok = await baseActions.onStartWords(wordIds);
+        if (ok) recordAnswered(key);
+        return ok;
       },
+      onDismiss: () => recordAnswered(key),
     };
   }
 
@@ -880,9 +966,12 @@ export function ChatWindow() {
     if (!ahead && cached && cached.word_id !== excludeWordId) {
       prefetchRef.current = null;
       appendLocalMessage("", [cached]);
-      fetchJSON("/api/v2/review/next", { conversationId, commitWidget: cached }).catch((err) =>
-        console.error("[serveNext] commit failed", err)
-      );
+      fetchJSON("/api/v2/review/next", { conversationId, commitWidget: cached }).catch((err) => {
+        // A silently dropped commit means the card never reaches the stored
+        // conversation (or the tutor) -- say so instead of console-only.
+        console.error("[serveNext] commit failed", err);
+        setError("Couldn't record this card in the conversation — answers still count.");
+      });
       // Warm the cache for the card after this one.
       prefetchNext(cached.word_id);
       return;
@@ -890,7 +979,11 @@ export function ChatWindow() {
 
     setLoading(true);
     try {
-      const data = await fetchJSON<{ message?: V2Message; done?: boolean }>("/api/v2/review/next", {
+      const data = await fetchJSON<{
+        message?: V2Message;
+        done?: boolean;
+        excludedStillDue?: boolean;
+      }>("/api/v2/review/next", {
         conversationId,
         excludeWordId,
         ahead,
@@ -899,8 +992,11 @@ export function ChatWindow() {
         const stats = sessionStats.current;
         sessionStats.current = { reviewed: 0, correct: 0 };
         appendLocalMessage(
-          stats.reviewed > 0
-            ? "Queue cleared -- that's everything due."
+          // A skipped word is still due -- "queue cleared" would be a lie.
+          data.excludedStillDue
+            ? "All done — except the word you skipped, which is still due."
+            : stats.reviewed > 0
+            ? "Queue cleared — that's everything due."
             : "Nothing due right now.",
           stats.reviewed > 0
             ? [{ type: "session_summary", reviewed: stats.reviewed, correct: stats.correct }]
@@ -935,7 +1031,7 @@ export function ChatWindow() {
         );
         return;
       }
-      appendLocalMessage("", [{ type: "word_picker", candidates: data.candidates }]);
+      appendLocalMessage("", [{ type: "word_picker", candidates: data.candidates }], { persist: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't find new words.");
     } finally {
@@ -950,6 +1046,9 @@ export function ChatWindow() {
     if (!pending || !isReviewWidget(pending.widget)) return;
     const widget = pending.widget;
     recordAnswered(pending.key);
+    // A concede wipes any hint taken -- otherwise the flag would silently
+    // penalize this word's NEXT (unhinted) correct answer in-session.
+    hintedRef.current.delete(widget.word_id);
     setError(null);
 
     let verdictId: string | null = null;
@@ -1008,8 +1107,11 @@ export function ChatWindow() {
   const reviewPending = pending !== null && isReviewWidget(pending.widget);
 
   // Session-start hero: a returning user's first screen is a real "ready to
-  // review" moment, not a lone chat bubble floating in gradient.
+  // review" moment, not a lone chat bubble floating in gradient. Waits for
+  // the progress fetch -- otherwise it flashes "0 due, all clear" at someone
+  // with a full queue.
   const showHero =
+    progressData !== null &&
     visibleMessages.length === 1 &&
     visibleMessages[0].role === "assistant" &&
     !(visibleMessages[0].widgets ?? []).some((w) => w.type === "onboarding_choice");
@@ -1034,9 +1136,11 @@ export function ChatWindow() {
           {
             label: "Hint",
             onClick: () => {
-              // A hinted answer schedules as "struggled", not a full success.
-              hintedRef.current.add(reviewWidget.word_id);
-              sendMessage("give me a hint");
+              // A hinted answer schedules as "struggled", not a full success
+              // -- but only count the hint if the request actually went out.
+              sendMessage("give me a hint").then((ok) => {
+                if (ok) hintedRef.current.add(reviewWidget.word_id);
+              });
             },
           },
         ];
@@ -1067,7 +1171,8 @@ export function ChatWindow() {
 
     // Queue empty: learning shouldn't dead-end. Offer fresh reservoir words
     // or a boost-style early review instead of a Next word that no-ops.
-    if (dueNow === 0 && hasStarted && !onboardingShowing) {
+    // (Only once progress has actually loaded -- dueNow defaults to 0.)
+    if (dueNow === 0 && progressData !== null && hasStarted && !onboardingShowing) {
       return [
         { label: "Learn new words", primary: true, onClick: learnNewWords },
         { label: "Review ahead", onClick: () => serveNext(undefined, { ahead: true }) },
@@ -1166,6 +1271,9 @@ export function ChatWindow() {
   }
 
   return (
+    // reducedMotion="user" turns off every framer animation in the chat for
+    // prefers-reduced-motion users -- per-component checks don't scale.
+    <MotionConfig reducedMotion="user">
     <div className="flex h-[100dvh]">
       <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
         {/* V2 owns its shell: the logo is the app menu (log out, old app). */}
@@ -1197,7 +1305,7 @@ export function ChatWindow() {
                 {dueNow > 0 ? `${dueNow} due` : "Progress"}
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="p-0 w-[320px] bg-stone-50">
+            <SheetContent side="right" className="p-0 w-[320px] bg-gray-50">
               <SheetTitle className="sr-only">Progress</SheetTitle>
               <ProgressPanel data={progressData} />
             </SheetContent>
@@ -1206,14 +1314,26 @@ export function ChatWindow() {
         {earlierMessages.length > 0 && (
           <button
             onClick={() => setShowHistory((s) => !s)}
-            className="w-full text-center text-xs text-gray-400 py-2.5 border-b border-dashed border-gray-200 hover:text-heading transition-colors"
+            className="w-full text-center text-xs text-subtle py-2.5 border-b border-dashed border-gray-200 hover:text-heading transition-colors"
           >
-            {showHistory ? "Hide earlier messages" : `↑ ${earlierMessages.length} earlier messages`}
+            {showHistory ? (
+              "Hide earlier messages"
+            ) : (
+              <>
+                <span aria-hidden="true">↑ </span>
+                {earlierMessages.length} earlier messages
+              </>
+            )}
           </button>
         )}
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+          {/* role=log announces appended tutor replies/verdicts to screen
+              readers -- without it the whole conversation is silent. */}
           <div
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
             className={cn(
               "max-w-2xl mx-auto w-full flex flex-col gap-4",
               // Center the lone active exchange vertically for a stage feel;
@@ -1248,7 +1368,7 @@ export function ChatWindow() {
                     </div>
                     <div className="text-sm text-subtle mt-2">
                       {dueNow === 0
-                        ? "all clear -- nothing due right now"
+                        ? "All clear — nothing due right now"
                         : dueNow === 1
                         ? "word due now"
                         : "words due now"}
@@ -1315,17 +1435,36 @@ export function ChatWindow() {
         </div>
 
         <div className="px-4 pb-5 pt-1 space-y-2.5">
-          {error && (
-            <div className="max-w-2xl mx-auto rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-2 flex items-center justify-between gap-3">
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="text-red-700/70 hover:text-red-700">
-                Dismiss
-              </button>
-            </div>
-          )}
+          {/* The footer lives at the eye's resting point -- banner and chips
+              fade in/out instead of popping inside an animated stage. */}
+          <AnimatePresence initial={false}>
+            {error && (
+              <motion.div
+                key="error"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="max-w-2xl mx-auto rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm px-4 py-2 flex items-center justify-between gap-3"
+              >
+                <span>{error}</span>
+                <button onClick={() => setError(null)} className="text-red-700/70 hover:text-red-700">
+                  Dismiss
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {chips.length > 0 && (
-            <div className="flex gap-2 flex-wrap justify-center">
+          <AnimatePresence initial={false}>
+            {chips.length > 0 && (
+              <motion.div
+                key="chips"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                className="flex gap-2 flex-wrap justify-center"
+              >
               {chips.map((chip) => (
                 <button
                   key={chip.label}
@@ -1351,8 +1490,9 @@ export function ChatWindow() {
                   )}
                 </button>
               ))}
-            </div>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {attachedImage && (
             <div className="max-w-2xl mx-auto flex items-center gap-2">
@@ -1363,7 +1503,7 @@ export function ChatWindow() {
                 className="h-12 w-12 rounded-lg object-cover border border-gray-200 shadow-sm"
               />
               <span className="text-xs text-subtle">
-                Photo attached -- send to extract vocabulary from it.
+                Photo attached — send to extract vocabulary from it.
               </span>
               <button
                 onClick={() => setAttachedImage(null)}
@@ -1427,9 +1567,10 @@ export function ChatWindow() {
         </div>
       </div>
 
-      <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-stone-50/60">
+      <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-gray-50/60">
         <ProgressPanel data={progressData} />
       </aside>
     </div>
+    </MotionConfig>
   );
 }

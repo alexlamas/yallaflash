@@ -8,7 +8,9 @@ export function TutorStrip({ text }: { text: string }) {
   return (
     <div className="w-full max-w-lg flex items-start gap-2.5">
       <img src="/logo.svg" alt="" className="w-6 h-6 shrink-0 mt-1.5" />
-      <div className="min-w-0 rounded-2xl rounded-tl-md bg-stone-100/80 px-4 py-2.5 text-[15px] leading-relaxed text-stone-800">
+      {/* Font size comes from MarkdownContent (text-sm) -- the bubble only
+          shapes the container. Gray, not stone: one neutral ramp per screen. */}
+      <div className="min-w-0 rounded-2xl rounded-tl-md bg-gray-100/80 px-4 py-2.5 leading-relaxed text-gray-800">
         <MarkdownContent text={text} />
       </div>
     </div>

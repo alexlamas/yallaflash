@@ -22,7 +22,7 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
     ? "Answer revealed"
     : widget.correct
     ? widget.hinted
-      ? "Correct -- with a hint"
+      ? "Correct — with a hint"
       : "Correct"
     : "Not quite";
   const Icon = widget.correct ? Check : X;
@@ -78,10 +78,16 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
         )}
         {/* Telemetry voice, matching the progress panel's microlabels. Instant
             verdicts render before the schedule write returns; the real date is
-            patched in a moment later. */}
-        <div className="pt-1 font-mono text-[10px] tracking-[0.12em] uppercase text-disabled tabular-nums">
-          next review {widget.next_review_date ? relativeTime(widget.next_review_date) : "..."}
-        </div>
+            patched in a moment later -- or flagged plainly if the write died. */}
+        {widget.save_failed ? (
+          <div className="pt-1 font-mono text-[10px] tracking-[0.12em] uppercase text-red-600 tabular-nums">
+            couldn&apos;t save — this word will come up again
+          </div>
+        ) : (
+          <div className="pt-1 font-mono text-[10px] tracking-[0.12em] uppercase text-subtle tabular-nums">
+            next review {widget.next_review_date ? relativeTime(widget.next_review_date) : "..."}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

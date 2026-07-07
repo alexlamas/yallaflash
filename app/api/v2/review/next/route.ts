@@ -91,7 +91,13 @@ export async function POST(req: Request) {
     const row = (rows ?? []).find((r) => (r.v2_words as unknown as WordRow).id !== excludeWordId);
 
     if (!row) {
-      return NextResponse.json({ done: true });
+      // "Done" can mean two things: genuinely nothing due, or only the
+      // just-skipped word remains (it's still due -- we merely excluded it).
+      // The client copy must not claim a cleared queue in the second case.
+      const excludedStillDue =
+        !ahead &&
+        (rows ?? []).some((r) => (r.v2_words as unknown as WordRow).id === excludeWordId);
+      return NextResponse.json({ done: true, excludedStillDue });
     }
 
     const word = row.v2_words as unknown as WordRow;

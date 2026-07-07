@@ -48,7 +48,7 @@ export function LandingV2() {
           </h1>
           <p className="mt-6 text-lg sm:text-xl leading-relaxed text-stone-600 max-w-xl">
             Yalla is a memory app with an AI tutor. <b className="text-stone-900">Text it a word, photo a menu,</b> and
-            it quizzes you right before you&apos;d forget -- so words from real life actually stick.
+            it quizzes you right before you&apos;d forget — so words from real life actually stick.
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-4">
             <button
@@ -62,7 +62,7 @@ export function LandingV2() {
             </a>
           </div>
           <div className="mt-12 flex flex-wrap items-center gap-2.5">
-            <span className="text-[11px] font-mono tracking-[0.15em] text-stone-400 uppercase mr-1">Works for</span>
+            <span className="text-[11px] font-mono tracking-[0.15em] text-stone-600 uppercase mr-1">Works for</span>
             <span className="rounded-full border border-green-600 bg-green-50 px-4 py-1.5 text-sm font-semibold text-green-900">
               Lebanese Arabic
             </span>
@@ -78,7 +78,7 @@ export function LandingV2() {
         </div>
 
         {/* Phone mockup mirroring /chat */}
-        <div className="flex justify-center lg:justify-end">
+        <div aria-hidden="true" className="flex justify-center lg:justify-end">
           <div className="w-[330px] rounded-[42px] border border-stone-200 bg-white p-3.5 shadow-2xl shadow-stone-900/20">
             <div className="rounded-[30px] overflow-hidden bg-gradient-to-b from-green-50 to-white flex flex-col min-h-[560px]">
               <div className="flex items-center gap-2 px-3.5 pt-3.5 pb-2">
@@ -95,7 +95,7 @@ export function LandingV2() {
                   my mother in law said &quot;ktir zaki&quot; about dinner
                 </div>
                 <div className="self-start max-w-[85%] rounded-2xl rounded-bl-md bg-white border border-stone-200 px-3.5 py-2.5 text-[13px] text-stone-600">
-                  Nice -- <b className="text-stone-900">zaki</b> = delicious. Saved it with that story. She&apos;ll say
+                  Nice — <b className="text-stone-900">zaki</b> = delicious. Saved it with that story. She&apos;ll say
                   it again; next time you&apos;ll catch it.
                 </div>
                 <div className="relative mt-1.5 mx-0.5">
@@ -141,7 +141,7 @@ export function LandingV2() {
         </div>
         <div className="grid md:grid-cols-3 gap-10">
           <div>
-            <div className="rounded-2xl border border-stone-200 bg-white p-5">
+            <div aria-hidden="true" className="rounded-2xl border border-stone-200 bg-white p-5">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Camera className="h-4 w-4 text-green-700" /> Found 3 words in your photo
               </div>
@@ -173,11 +173,11 @@ export function LandingV2() {
             </p>
           </div>
           <div>
-            <div className="rounded-2xl border border-stone-200 bg-white p-5 text-center">
+            <div aria-hidden="true" className="rounded-2xl border border-stone-200 bg-white p-5 text-center">
               <div className="font-title text-3xl" dir="rtl">
                 زكي
               </div>
-              <div className="mt-2 text-sm text-stone-500">Type the arabizi -- from memory.</div>
+              <div className="mt-2 text-sm text-stone-500">Type the arabizi — from memory.</div>
               <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11.5px] text-amber-800">
                 <PencilLine className="h-3 w-3" /> You heard this from your mother-in-law about dinner
               </div>
@@ -187,13 +187,13 @@ export function LandingV2() {
             </div>
             <h3 className="font-title text-2xl mt-5">Recall with your own story</h3>
             <p className="mt-2 text-stone-600 leading-relaxed">
-              Cards carry the moment you met the word. Personal context is the strongest memory hook there is -- the
+              Cards carry the moment you met the word. Personal context is the strongest memory hook there is — the
               tutor writes it down so you don&apos;t have to.
             </p>
           </div>
           <div>
-            <div className="rounded-2xl border border-stone-200 bg-white p-5">
-              <div className="text-[11px] font-mono tracking-[0.15em] text-stone-400">MEMORY TELEMETRY</div>
+            <div aria-hidden="true" className="rounded-2xl border border-stone-200 bg-white p-5">
+              <div className="text-[11px] font-mono tracking-[0.15em] text-stone-600">MEMORY TELEMETRY</div>
               <div className="mt-1 font-title text-4xl text-green-900">
                 142 <span className="text-base font-sans text-stone-500">words kept</span>
               </div>
@@ -215,7 +215,7 @@ export function LandingV2() {
             <h3 className="font-title text-2xl mt-5">Keep it, provably</h3>
             <p className="mt-2 text-stone-600 leading-relaxed">
               Your forest grows as words survive longer intervals. The countdown says exactly when memory needs you
-              next -- five minutes on the bus is enough.
+              next — five minutes on the bus is enough.
             </p>
           </div>
         </div>
@@ -226,7 +226,7 @@ export function LandingV2() {
             onClick={() => handleCtaClick("footer")}
             className="mt-7 rounded-full bg-white px-8 py-4 text-lg font-semibold text-green-900 hover:bg-green-50 transition-colors"
           >
-            Start remembering -- it&apos;s free
+            Start remembering — it&apos;s free
           </button>
         </div>
       </section>

@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import type { Widget } from "@/app/v2/lib/types";
 
 type RecallInputWidget = Extract<Widget, { type: "recall_input" }>;
@@ -16,7 +17,7 @@ export function RecallInput({
   answered = false,
 }: {
   widget: RecallInputWidget;
-  onAnswer: (wordId: string, tier: RecallInputWidget["tier"], submitted: string) => void;
+  onAnswer: (wordId: string, tier: RecallInputWidget["tier"], submitted: string) => Promise<boolean>;
   active?: boolean;
   // Durable answered state -- local state resets on remount, which once
   // brought an old card back to life with a live input.
@@ -26,17 +27,20 @@ export function RecallInput({
   const [submitted, setSubmitted] = useState(false);
   const done = answered || submitted;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (done || !value.trim()) return;
     setSubmitted(true);
-    onAnswer(widget.word_id, widget.tier, value.trim());
+    // A failed grade re-enables the card so the typed answer can be
+    // resubmitted -- otherwise a network blip wedges the review.
+    const ok = await onAnswer(widget.word_id, widget.tier, value.trim());
+    if (!ok) setSubmitted(false);
   };
 
   const card = (
     <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
-          <div className={active ? "text-4xl" : "text-2xl"} dir="rtl">
+          <div className={active ? "text-4xl" : "text-2xl"} dir={DEFAULT_LANGUAGE.scriptDir}>
             {widget.cue.script}
           </div>
         )}
@@ -51,6 +55,7 @@ export function RecallInput({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             placeholder="Type the English meaning..."
+            aria-label={widget.prompt}
             autoFocus={active}
           />
           <Button

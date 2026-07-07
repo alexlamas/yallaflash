@@ -1,4 +1,5 @@
 import type { ReviewTier } from "./types";
+import { DEFAULT_LANGUAGE } from "./language";
 
 // Pure grading logic shared by the server grader and the client's instant
 // verdict path. Nothing here may import the Anthropic SDK -- model-dependent
@@ -67,9 +68,12 @@ export function gradeDeterministic(
   if (tier === "hard") {
     const b = normalize(answer.arabizi);
     if (a === b) return true;
-    // Floor of 2: arabizi vowel spellings vary wildly (kteer/ktir), so short
-    // words need a real uncertainty band for the model to judge.
-    const nearMissThreshold = Math.max(2, Math.round(b.length * NEAR_MISS_MAX_DISTANCE_RATIO));
+    // The floor is a language knob (see language.ts): romanization spelling
+    // variance means short words need a real uncertainty band for the model.
+    const nearMissThreshold = Math.max(
+      DEFAULT_LANGUAGE.nearMissFloor,
+      Math.round(b.length * NEAR_MISS_MAX_DISTANCE_RATIO)
+    );
     return levenshtein(a, b) <= nearMissThreshold ? null : false;
   }
 

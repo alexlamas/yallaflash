@@ -70,6 +70,26 @@ function SignalBars({ retention }: { retention: number }) {
   );
 }
 
+// Blurred until the learner opts in: click/tap durably toggles the reveal,
+// while hover and keyboard focus still give a temporary desktop preview.
+function BlurredTranslation({ english }: { english: string }) {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-pressed={revealed}
+      onClick={() => setRevealed((r) => !r)}
+      className={cn(
+        "flex-1 min-w-0 truncate text-left text-xs text-subtle rounded transition-[filter]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500/60",
+        !revealed && "blur-[3px] hover:blur-none focus-visible:blur-none select-none"
+      )}
+    >
+      {english}
+    </button>
+  );
+}
+
 // Data is fetched once by the chat shell and shared between the desktop
 // sidebar and the mobile sheet, so the sheet never opens onto a spinner.
 export function ProgressPanel({ data }: { data: ProgressData | null }) {
@@ -199,17 +219,17 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
             <div className="font-mono text-sm text-green-700">
               {meanRetention === null ? "—" : `${(meanRetention * 100).toFixed(1)}%`}
             </div>
-            <div className="font-mono text-[9px] tracking-[0.12em] text-disabled mt-0.5">RETENTION</div>
+            <div className="font-mono text-[9px] tracking-[0.12em] text-subtle mt-0.5">RETENTION</div>
           </div>
           <div>
             <div className="font-mono text-sm text-green-700">
               {meanEase === null ? "—" : meanEase.toFixed(2)}
             </div>
-            <div className="font-mono text-[9px] tracking-[0.12em] text-disabled mt-0.5">MEAN EASE</div>
+            <div className="font-mono text-[9px] tracking-[0.12em] text-subtle mt-0.5">MEAN EASE</div>
           </div>
           <div>
             <div className="font-mono text-sm text-green-700">{reviewedToday}</div>
-            <div className="font-mono text-[9px] tracking-[0.12em] text-disabled mt-0.5">TODAY</div>
+            <div className="font-mono text-[9px] tracking-[0.12em] text-subtle mt-0.5">TODAY</div>
           </div>
         </div>
       </section>
@@ -218,7 +238,7 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
       <section className="rounded-xl bg-white border border-gray-200 shadow-sm flex flex-col min-h-[10rem] shrink-0">
         <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-gray-100">
           <span className="text-[10px] font-mono tracking-[0.14em] text-subtle">MEMORY TELEMETRY</span>
-          <span className="text-[10px] font-mono text-disabled">e^(−t/S)</span>
+          <span className="text-[10px] font-mono text-subtle">e^(−t/S)</span>
         </div>
         <div className="px-4 py-2">
           {total === 0 && (
@@ -233,26 +253,14 @@ export function ProgressPanel({ data }: { data: ProgressData | null }) {
                 <span className="font-medium text-heading truncate w-[72px] shrink-0">{word.arabizi}</span>
                 {retention === null ? (
                   <>
-                    <span
-                      tabIndex={0}
-                      aria-label={`Translation of ${word.arabizi} -- focus to reveal`}
-                      className="flex-1 text-xs text-subtle truncate blur-[3px] hover:blur-none focus-visible:blur-none focus-visible:outline-none transition-[filter] select-none"
-                    >
-                      {word.english}
-                    </span>
-                    <span className="font-mono text-[10px] text-disabled border border-gray-200 rounded px-1.5 py-0.5">
+                    <BlurredTranslation english={word.english} />
+                    <span className="font-mono text-[10px] text-subtle border border-gray-200 rounded px-1.5 py-0.5">
                       NEW
                     </span>
                   </>
                 ) : (
                   <>
-                    <span
-                      tabIndex={0}
-                      aria-label={`Translation of ${word.arabizi} -- focus to reveal`}
-                      className="flex-1 min-w-0 truncate text-xs text-subtle blur-[3px] hover:blur-none focus-visible:blur-none focus-visible:outline-none transition-[filter] select-none"
-                    >
-                      {word.english}
-                    </span>
+                    <BlurredTranslation english={word.english} />
                     <SignalBars retention={retention} />
                     <span
                       className={cn(

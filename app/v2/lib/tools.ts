@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import type { DueWord, ReviewCue, ReviewTier, Widget, WordProposal } from "./types";
+import { DEFAULT_LANGUAGE } from "./language";
 
 export interface ToolContext {
   supabase: SupabaseClient;
@@ -10,9 +11,13 @@ export interface ToolContext {
 }
 
 export async function getDefaultLanguageId(supabase: SupabaseClient): Promise<string> {
-  const { data, error } = await supabase.from("v2_languages").select("id").eq("code", "leb-ar").single();
+  const { data, error } = await supabase
+    .from("v2_languages")
+    .select("id")
+    .eq("code", DEFAULT_LANGUAGE.code)
+    .single();
   if (error || !data) {
-    throw new Error("Lebanese Arabic language row not found -- run the v2 seed migration");
+    throw new Error(`${DEFAULT_LANGUAGE.name} language row not found -- run the v2 seed migration`);
   }
   return data.id;
 }
@@ -375,9 +380,11 @@ async function startReview(ctx: ToolContext, wordId: string): Promise<{ result: 
       card_shows: isProduction
         ? { english: word.english, memory_hook: word.memory_hook }
         : { arabizi: word.arabizi, script: word.script },
-      card_asks_user_for: isProduction ? "the arabizi, typed from memory" : "the English meaning",
+      card_asks_user_for: isProduction
+        ? `the ${DEFAULT_LANGUAGE.romanization}, typed from memory`
+        : "the English meaning",
       do_not_reveal_in_your_text: isProduction
-        ? `the arabizi "${word.arabizi}" or its script`
+        ? `the ${DEFAULT_LANGUAGE.romanization} "${word.arabizi}" or its script`
         : `the English meaning "${word.english}"`,
     },
     widget,
@@ -399,7 +406,7 @@ export async function buildReviewWidget(
       type: "produce_cold",
       word_id: word.id,
       tier,
-      prompt: `Type the arabizi for "${word.english}" -- no options, from memory.`,
+      prompt: `Type the ${DEFAULT_LANGUAGE.romanization} for "${word.english}" — no options, from memory.`,
       cue,
       answer,
     };

@@ -199,6 +199,9 @@ export function WordsTable() {
   const removeRows = useCallback(
     async (ids: string[]) => {
       if (!rows || ids.length === 0) return;
+      // Guards every delete path (keyboard, row menu, selection bar) -- no undo exists.
+      const label = ids.length === 1 ? "1 word" : `${ids.length} words`;
+      if (!window.confirm(`Remove ${label}? This can't be undone.`)) return;
       const prevRows = rows;
       setRows(rows.filter((r) => !ids.includes(r.word_id)));
       setSelected(new Set());
@@ -296,9 +299,9 @@ export function WordsTable() {
           editable && "hover:bg-black/[0.04]",
           !raw && "text-gray-300"
         )}
-        title={editable ? undefined : "Pack word -- shared, not editable"}
+        title={editable ? undefined : "Pack word — shared, not editable"}
       >
-        {raw || "--"}
+        {raw || "—"}
       </button>
     );
   }
@@ -324,7 +327,7 @@ export function WordsTable() {
           </Link>
           <Image src="/logo.svg" alt="" width={20} height={20} />
           <h1 className="font-title text-lg">My words</h1>
-          <div className="ml-2 hidden items-center gap-1 sm:flex">
+          <div className="ml-2 flex flex-wrap items-center gap-1">
             {FILTERS.map((f) => (
               <button
                 key={f.key}
@@ -404,7 +407,7 @@ export function WordsTable() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={9} className="py-12 text-center text-subtle">
-                  {search || filter !== "all" ? "Nothing matches." : "Nothing here yet -- add words in the chat."}
+                  {search || filter !== "all" ? "Nothing matches." : "Nothing here yet — add words in the chat."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -430,7 +433,7 @@ export function WordsTable() {
                           "flex h-4.5 w-4.5 items-center justify-center rounded-full border transition-opacity",
                           isSelected
                             ? "border-green-600 bg-green-600 text-white opacity-100"
-                            : "border-gray-300 bg-white opacity-0 group-hover:opacity-100"
+                            : "border-gray-300 bg-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                         )}
                         style={{ height: 18, width: 18 }}
                       >
@@ -469,7 +472,7 @@ export function WordsTable() {
                         <DropdownMenuTrigger asChild>
                           <button
                             aria-label="Row actions"
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 opacity-0 transition-opacity hover:bg-gray-100 hover:text-heading group-hover:opacity-100 data-[state=open]:opacity-100"
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 opacity-100 transition-opacity hover:bg-gray-100 hover:text-heading sm:opacity-0 sm:group-hover:opacity-100 data-[state=open]:opacity-100"
                           >
                             <MoreHorizontal className="h-4 w-4" />
                           </button>

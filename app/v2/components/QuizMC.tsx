@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import type { Widget } from "@/app/v2/lib/types";
 
 type QuizMCWidget = Extract<Widget, { type: "quiz_mc" }>;
@@ -15,7 +16,7 @@ export function QuizMC({
   answered = false,
 }: {
   widget: QuizMCWidget;
-  onAnswer: (wordId: string, tier: QuizMCWidget["tier"], submitted: string) => void;
+  onAnswer: (wordId: string, tier: QuizMCWidget["tier"], submitted: string) => Promise<boolean>;
   active?: boolean;
   // Durable answered state from the conversation -- local state resets on
   // remount, which once brought an old card back to life.
@@ -24,10 +25,13 @@ export function QuizMC({
   const [selected, setSelected] = useState<string | null>(null);
   const done = answered || selected !== null;
 
-  const handleSelect = (option: string) => {
+  const handleSelect = async (option: string) => {
     if (done) return;
     setSelected(option);
-    onAnswer(widget.word_id, widget.tier, option);
+    // A failed grade re-enables the options -- a network blip must not
+    // wedge the card.
+    const ok = await onAnswer(widget.word_id, widget.tier, option);
+    if (!ok) setSelected(null);
   };
 
   // Number keys pick options while this card is the active one.
@@ -48,7 +52,7 @@ export function QuizMC({
     <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
-          <div className={active ? "text-4xl" : "text-2xl"} dir="rtl">
+          <div className={active ? "text-4xl" : "text-2xl"} dir={DEFAULT_LANGUAGE.scriptDir}>
             {widget.cue.script}
           </div>
         )}

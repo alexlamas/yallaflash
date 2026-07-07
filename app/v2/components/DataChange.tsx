@@ -19,7 +19,7 @@ export function DataChange({ widget }: { widget: Extract<Widget, { type: "data_c
   const meta = ACTION_META[widget.action];
   const destructive = widget.action === "deleted";
   return (
-    <div className="max-w-md overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div className="max-w-md overflow-hidden rounded-2xl border-[0.5px] border-gray-200 bg-white shadow-sm">
       <div
         className={cn(
           "flex items-center gap-2 border-b border-gray-100 px-3.5 py-2 text-sm",
@@ -54,9 +54,9 @@ export function DataChange({ widget }: { widget: Extract<Widget, { type: "data_c
                   {change.field}
                 </td>
                 <td className="px-2 py-1.5 text-subtle">
-                  {change.from != null ? <span className="line-through decoration-red-300">{change.from}</span> : "--"}
+                  {change.from != null ? <span className="line-through decoration-red-300">{change.from}</span> : "—"}
                 </td>
-                <td className="px-2 py-1.5 font-medium text-heading">{change.to ?? "--"}</td>
+                <td className="px-2 py-1.5 font-medium text-heading">{change.to ?? "—"}</td>
               </tr>
             ))}
           </tbody>

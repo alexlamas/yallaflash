@@ -12,7 +12,7 @@ function headline(reviewed: number, correct: number): string {
   if (ratio === 1) return "Yalla! Clean sweep";
   if (ratio >= 0.7) return "Solid session";
   if (ratio >= 0.4) return "Getting there";
-  return "Tough round -- they'll come back around";
+  return "Tough round — they'll come back around";
 }
 
 export function SessionSummary({ widget }: { widget: Extract<Widget, { type: "session_summary" }> }) {

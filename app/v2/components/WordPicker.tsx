@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Zero-due moment: fresh pack words offered for selection. Tapping rows
@@ -12,17 +13,29 @@ import type { Widget } from "@/app/v2/lib/types";
 export function WordPicker({
   widget,
   onStartWords,
+  onDismiss,
   answered = false,
 }: {
   widget: Extract<Widget, { type: "word_picker" }>;
-  onStartWords: (wordIds: string[]) => void;
+  onStartWords: (wordIds: string[]) => Promise<boolean>;
+  onDismiss: () => void;
   answered?: boolean;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(widget.candidates.map((c) => c.id)));
+  const [saving, setSaving] = useState(false);
   const [justConfirmed, setJustConfirmed] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const confirmed = answered || justConfirmed;
 
   if (widget.candidates.length === 0) return null;
+
+  if (dismissed) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-subtle">
+        Maybe later
+      </div>
+    );
+  }
 
   if (confirmed) {
     return (
@@ -42,10 +55,20 @@ export function WordPicker({
     });
   };
 
+  // The receipt flips only after the write lands -- a failed start keeps the
+  // picker interactive instead of leaving a false "Started" receipt.
+  const handleStart = async () => {
+    if (saving) return;
+    setSaving(true);
+    const ok = await onStartWords([...selected]);
+    setSaving(false);
+    if (ok) setJustConfirmed(true);
+  };
+
   return (
     <Card className="max-w-md">
       <CardContent className="p-4 space-y-3">
-        <div className="text-sm font-medium">Fresh from the packs -- pick what to learn:</div>
+        <div className="text-sm font-medium">Fresh from the packs — pick what to learn:</div>
         <div className="space-y-1.5">
           {widget.candidates.map((c) => {
             const isOn = selected.has(c.id);
@@ -53,6 +76,7 @@ export function WordPicker({
               <button
                 key={c.id}
                 onClick={() => toggle(c.id)}
+                aria-pressed={isOn}
                 className={cn(
                   "w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors",
                   isOn ? "border-green-500 bg-green-50/70" : "border-gray-200 bg-white hover:border-gray-300"
@@ -69,7 +93,7 @@ export function WordPicker({
                 <span className="font-medium">
                   {c.arabizi}
                   {c.script && (
-                    <span dir="rtl" className="mx-1.5 font-normal">
+                    <span dir={DEFAULT_LANGUAGE.scriptDir} className="mx-1.5 font-normal">
                       {c.script}
                     </span>
                   )}
@@ -79,16 +103,28 @@ export function WordPicker({
             );
           })}
         </div>
-        <Button
-          disabled={selected.size === 0}
-          onClick={() => {
-            setJustConfirmed(true);
-            onStartWords([...selected]);
-          }}
-          className="w-full bg-green-600 hover:bg-green-700"
-        >
-          Learn {selected.size === widget.candidates.length ? "all" : selected.size} of these
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            disabled={saving}
+            onClick={() => {
+              setDismissed(true);
+              onDismiss();
+            }}
+            className="text-subtle"
+          >
+            Not now
+          </Button>
+          <Button
+            disabled={saving || selected.size === 0}
+            onClick={handleStart}
+            className="flex-1 bg-green-600 hover:bg-green-700"
+          >
+            {saving
+              ? "Starting..."
+              : `Learn ${selected.size === widget.candidates.length ? "all" : selected.size} of these`}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

@@ -12,12 +12,18 @@ import { DataChange } from "./DataChange";
 import { InstructionsEditor } from "./InstructionsEditor";
 import { SessionSummary } from "./SessionSummary";
 
+// Mutating actions resolve to a success boolean so widgets can commit their
+// confirmed/answered visuals ON SUCCESS instead of optimistically -- a failed
+// write must leave the widget interactive, never a false receipt.
 export interface WidgetActions {
-  onAnswer: (wordId: string, tier: ReviewTier, submitted: string) => void;
-  onConfirmWords: (proposals: WordProposal[]) => void;
+  onAnswer: (wordId: string, tier: ReviewTier, submitted: string) => Promise<boolean>;
+  onConfirmWords: (proposals: WordProposal[]) => Promise<boolean>;
   onChooseOnboarding: (choice: "add_words" | "browse_packs") => void;
-  onStartPack: (packId: string) => void;
-  onStartWords: (wordIds: string[]) => void;
+  onStartPack: (packId: string) => Promise<boolean>;
+  onStartWords: (wordIds: string[]) => Promise<boolean>;
+  // Decline a confirm-style widget (pack list, word picker, preview) so it
+  // stops gating the action chips.
+  onDismiss: () => void;
 }
 
 export function WidgetRenderer({
@@ -37,7 +43,14 @@ export function WidgetRenderer({
     case "onboarding_choice":
       return <OnboardingChoice onChoose={actions.onChooseOnboarding} />;
     case "pack_list":
-      return <PackList widget={widget} onStartPack={actions.onStartPack} />;
+      return (
+        <PackList
+          widget={widget}
+          onStartPack={actions.onStartPack}
+          onDismiss={actions.onDismiss}
+          answered={answered}
+        />
+      );
     case "word_card":
       return <WordCard word={widget.word} imageUrl={widget.image_url} active={active} />;
     case "quiz_mc":
@@ -47,9 +60,23 @@ export function WidgetRenderer({
     case "produce_cold":
       return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
     case "add_words_preview":
-      return <AddWordsPreview widget={widget} onConfirm={actions.onConfirmWords} answered={answered} />;
+      return (
+        <AddWordsPreview
+          widget={widget}
+          onConfirm={actions.onConfirmWords}
+          onDismiss={actions.onDismiss}
+          answered={answered}
+        />
+      );
     case "word_picker":
-      return <WordPicker widget={widget} onStartWords={actions.onStartWords} answered={answered} />;
+      return (
+        <WordPicker
+          widget={widget}
+          onStartWords={actions.onStartWords}
+          onDismiss={actions.onDismiss}
+          answered={answered}
+        />
+      );
     case "review_verdict":
       return <ReviewVerdict widget={widget} />;
     case "data_change":
