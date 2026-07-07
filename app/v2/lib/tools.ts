@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
-import type { DueWord, ReviewCue, ReviewTier, Widget, WordProposal } from "./types";
+import type { DueWord, ReviewContext, ReviewCue, ReviewTier, Widget, WordProposal } from "./types";
 import { DEFAULT_LANGUAGE } from "./language";
+import { randomFlavor } from "./cardFlavors";
 
 export interface ToolContext {
   supabase: SupabaseClient;
@@ -55,10 +56,24 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "start_review",
     description:
-      "Given a specific due word you've decided to test next, deterministically build the review widget for it. The app picks the difficulty tier from the word's own progress -- you only choose which due word to test.",
+      "Given a specific due word you've decided to test next, deterministically build the review widget for it. The app picks the difficulty tier from the word's own progress and shuffles the card's format and look -- you choose which due word to test, and can optionally wrap it in a sentence for variety.",
     input_schema: {
       type: "object",
-      properties: { word_id: { type: "string" } },
+      properties: {
+        word_id: { type: "string" },
+        context_sentence: {
+          type: "object",
+          description: `Optional, for variety: a short natural ${DEFAULT_LANGUAGE.name} sentence that uses this word exactly as stored. Recognition cards show the sentence as context (its translation stays hidden); production cards blank the word out and show the translation, becoming a fill-in-the-blank. Ignored if the sentence doesn't contain the word's stored ${DEFAULT_LANGUAGE.romanization}.`,
+          properties: {
+            target: {
+              type: "string",
+              description: `The sentence in ${DEFAULT_LANGUAGE.romanization}, containing the word's stored spelling verbatim`,
+            },
+            english: { type: "string", description: "The sentence's English translation" },
+          },
+          required: ["target", "english"],
+        },
+      },
       required: ["word_id"],
     },
   },
@@ -212,7 +227,11 @@ export async function executeTool(
     case "get_word_detail":
       return getWordDetail(ctx, String(input.word_id ?? ""));
     case "start_review":
-      return startReview(ctx, String(input.word_id ?? ""));
+      return startReview(
+        ctx,
+        String(input.word_id ?? ""),
+        (input.context_sentence ?? undefined) as ContextSentenceInput | undefined
+      );
     case "update_word_note":
       return updateWordNote(
         ctx,
@@ -351,7 +370,68 @@ export function tierForProgress(progress: { status: string; review_count: number
   return "hard";
 }
 
-async function startReview(ctx: ToolContext, wordId: string): Promise<{ result: unknown; widget?: Widget }> {
+// A model-supplied sentence for start_review. Validated server-side before
+// it reaches a card: it must actually contain the word, and its translation
+// is only ever kept on production tiers (on recognition it would hand over
+// the meaning being tested).
+export interface ContextSentenceInput {
+  target?: string;
+  english?: string;
+}
+
+function wordPattern(word: string): RegExp {
+  const escaped = word.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(escaped, "i");
+}
+
+function usableSentence(
+  input: ContextSentenceInput | undefined,
+  arabizi: string
+): { target: string; english?: string } | null {
+  const target = typeof input?.target === "string" ? input.target.trim() : "";
+  if (!target || !wordPattern(arabizi).test(target)) return null;
+  const english = typeof input?.english === "string" ? input.english.trim() : "";
+  return { target, english: english || undefined };
+}
+
+function pick<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+type ReviewCardWidget = Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>;
+
+// Which side a card keeps hidden until the user answers. Production cards
+// and reversed multiple choice hide the word; everything else hides the
+// English meaning.
+export function cardAsksForTarget(widget: ReviewCardWidget): boolean {
+  return (
+    widget.type === "produce_cold" || (widget.type === "quiz_mc" && widget.direction === "to_target")
+  );
+}
+
+// The hidden ground-truth line persisted when the app serves a card without
+// the model. Shared by both serve paths so the `asks=` token (which the
+// chat route's leak scrub reads) can never drift from the widget.
+export function buildServedLine(
+  word: { id: string; arabizi: string; english: string },
+  widget: ReviewCardWidget
+): string {
+  const asksTarget = cardAsksForTarget(widget);
+  const asks = asksTarget
+    ? widget.type === "quiz_mc"
+      ? `the right ${DEFAULT_LANGUAGE.romanization} option for the shown English`
+      : widget.context
+      ? `the ${DEFAULT_LANGUAGE.romanization} missing from a sentence`
+      : `the ${DEFAULT_LANGUAGE.romanization} from memory`
+    : "the English meaning";
+  return `[SERVED] word_id=${word.id} arabizi="${word.arabizi}" english="${word.english}" tier=${widget.tier} asks=${asksTarget ? "arabizi" : "english"} -- the app served this card directly; the user hasn't answered yet. The card asks for ${asks}.`;
+}
+
+async function startReview(
+  ctx: ToolContext,
+  wordId: string,
+  contextSentence?: ContextSentenceInput
+): Promise<{ result: unknown; widget?: Widget }> {
   const { data: progress, error: progressError } = await ctx.supabase
     .from("v2_word_progress")
     .select("status, review_count")
@@ -369,23 +449,45 @@ async function startReview(ctx: ToolContext, wordId: string): Promise<{ result: 
 
   const tier = tierForProgress(progress);
 
-  const widget = await buildReviewWidget(ctx, word, tier);
+  const widget = (await buildReviewWidget(ctx, word, tier, contextSentence)) as ReviewCardWidget;
   // Tell the model exactly what the card displays and what must stay hidden,
   // so its lead-in text can't leak the answer (e.g. framing a recognition
-  // card as "how do you say 'a lot'?" gives the meaning away).
-  const isProduction = tier === "hard";
+  // card as "how do you say 'a lot'?" gives the meaning away). Derived from
+  // the built widget, not the tier: format is shuffled per card.
+  const asksTarget = cardAsksForTarget(widget);
+  const context = widget.context;
   return {
     result: {
       tier,
-      card_shows: isProduction
-        ? { english: word.english, memory_hook: word.memory_hook }
-        : { arabizi: word.arabizi, script: word.script },
-      card_asks_user_for: isProduction
-        ? `the ${DEFAULT_LANGUAGE.romanization}, typed from memory`
+      format:
+        widget.type === "quiz_mc"
+          ? asksTarget
+            ? `multiple choice, reversed: English shown, ${DEFAULT_LANGUAGE.romanization} options`
+            : "multiple choice"
+          : widget.type === "recall_input"
+          ? "typed meaning"
+          : context
+          ? "fill-in-the-blank sentence"
+          : `typed ${DEFAULT_LANGUAGE.romanization} from memory`,
+      card_shows: asksTarget
+        ? {
+            english: word.english,
+            memory_hook: word.memory_hook,
+            ...(context ? { sentence_with_blank: context.target, sentence_english: context.english } : {}),
+          }
+        : {
+            arabizi: word.arabizi,
+            script: word.script,
+            ...(context ? { context_sentence: context.target } : {}),
+          },
+      card_asks_user_for: asksTarget
+        ? widget.type === "quiz_mc"
+          ? `picking the right ${DEFAULT_LANGUAGE.romanization} option`
+          : `the ${DEFAULT_LANGUAGE.romanization}, typed from memory`
         : "the English meaning",
-      do_not_reveal_in_your_text: isProduction
+      do_not_reveal_in_your_text: asksTarget
         ? `the ${DEFAULT_LANGUAGE.romanization} "${word.arabizi}" or its script`
-        : `the English meaning "${word.english}"`,
+        : `the English meaning "${word.english}"${context ? ", or any translation of the context sentence" : ""}`,
     },
     widget,
   };
@@ -394,21 +496,44 @@ async function startReview(ctx: ToolContext, wordId: string): Promise<{ result: 
 export async function buildReviewWidget(
   ctx: ToolContext,
   word: { id: string; language_id: string; arabizi: string; script: string | null; english: string; memory_hook: string | null },
-  tier: ReviewTier
+  tier: ReviewTier,
+  contextSentence?: ContextSentenceInput
 ): Promise<Widget> {
   // Ground truth rides along (not rendered on the card) so the client can
   // grade exact matches instantly instead of waiting on a round trip.
   const answer = { arabizi: word.arabizi, english: word.english };
+  // Every card is dealt a visual flavor and a prompt phrasing at random, so
+  // a session reads as a shuffled deck instead of one repeating form. None
+  // of this touches grading -- the tier still decides what's asked.
+  const flavor = randomFlavor();
+  const rom = DEFAULT_LANGUAGE.romanization;
+  const sentence = usableSentence(contextSentence, word.arabizi);
 
   if (tier === "hard") {
     const cue: ReviewCue = { english: word.english, memory_hook: word.memory_hook };
+    // Cloze: the word is blanked out HERE, so the rendered widget never
+    // carries the sentence with the answer still in it.
+    const context: ReviewContext | undefined = sentence
+      ? { target: sentence.target.replace(wordPattern(word.arabizi), "____"), english: sentence.english }
+      : undefined;
     return {
       type: "produce_cold",
       word_id: word.id,
       tier,
-      prompt: `Type the ${DEFAULT_LANGUAGE.romanization} for "${word.english}" — no options, from memory.`,
+      prompt: context
+        ? pick([
+            `Fill the blank — type the missing ${rom}.`,
+            `Complete the sentence — what's the missing word?`,
+          ])
+        : pick([
+            `Type the ${rom} for "${word.english}" — no options, from memory.`,
+            `How do you say "${word.english}"? Type the ${rom}.`,
+            `You need "${word.english}" mid-conversation — type it in ${rom}.`,
+          ]),
       cue,
       answer,
+      flavor,
+      context,
       // The meaning is already the visible cue on this tier, so an image of
       // the concept can't leak anything.
       image_url: await findImageForWord(ctx.supabase, word.english),
@@ -416,41 +541,80 @@ export async function buildReviewWidget(
   }
 
   const cue: ReviewCue = { arabizi: word.arabizi, script: word.script };
+  // Recognition context: the sentence is shown in the language only -- its
+  // translation is deliberately dropped here, never just hidden client-side.
+  const context: ReviewContext | undefined = sentence ? { target: sentence.target } : undefined;
+  const recognitionPrompt = context
+    ? `What does "${word.arabizi}" mean here?`
+    : pick([
+        `What does "${word.arabizi}" mean?`,
+        `You overhear "${word.arabizi}" — what did they say?`,
+        `Quick one: "${word.arabizi}" in English?`,
+      ]);
 
   if (tier === "medium") {
     return {
       type: "recall_input",
       word_id: word.id,
       tier,
-      prompt: `What does "${word.arabizi}" mean?`,
+      prompt: recognitionPrompt,
       cue,
       answer,
+      flavor,
+      context,
     };
   }
 
-  const distractors = await getDistractors(ctx, word);
+  // Easy tier: half the time the card flips -- English shown, word options.
+  // Never when a context sentence is attached: the sentence contains the
+  // word, so a reversed card would print its own answer.
+  const reversed = !context && Math.random() < 0.5;
+  if (reversed) {
+    const distractors = await getDistractors(ctx, word, "arabizi");
+    return {
+      type: "quiz_mc",
+      word_id: word.id,
+      tier,
+      direction: "to_target",
+      prompt: pick([`Which one means "${word.english}"?`, `Pick the word for "${word.english}".`]),
+      cue: { english: word.english },
+      options: shuffle([word.arabizi, ...distractors]),
+      answer,
+      flavor,
+    };
+  }
+
+  const distractors = await getDistractors(ctx, word, "english");
   return {
     type: "quiz_mc",
     word_id: word.id,
     tier,
-    prompt: `What does "${word.arabizi}" mean?`,
+    direction: "to_english",
+    prompt: recognitionPrompt,
     cue,
     options: shuffle([word.english, ...distractors]),
     answer,
+    flavor,
+    context,
   };
 }
 
-async function getDistractors(ctx: ToolContext, word: { id: string; language_id: string; english: string }) {
+async function getDistractors(
+  ctx: ToolContext,
+  word: { id: string; language_id: string; english: string; arabizi: string },
+  field: "english" | "arabizi"
+) {
   const { data } = await ctx.supabase
     .from("v2_words")
-    .select("english")
+    .select(field)
     .eq("language_id", word.language_id)
     .neq("id", word.id)
     .limit(20);
 
-  const pool = Array.from(new Set((data ?? []).map((w) => w.english))).filter(
-    (e) => e.toLowerCase() !== word.english.toLowerCase()
-  );
+  const own = word[field].toLowerCase();
+  const pool = Array.from(
+    new Set((data ?? []).map((w) => (w as Record<string, string>)[field]))
+  ).filter((value) => value && value.toLowerCase() !== own);
   return shuffle(pool).slice(0, 3);
 }
 

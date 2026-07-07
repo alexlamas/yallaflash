@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
-import { gradeColdRecall, gradeRecognition } from "@/app/v2/lib/grading";
+import { gradeColdRecall, gradeDeterministic, gradeRecognition } from "@/app/v2/lib/grading";
 import { findImageForWord } from "@/app/v2/lib/tools";
-import type { ReviewTier } from "@/app/v2/lib/types";
+import type { ReviewDirection, ReviewTier } from "@/app/v2/lib/types";
 
 // Near-miss grading can make a Claude call on top of DB round trips.
 export const maxDuration = 30;
@@ -12,6 +12,9 @@ export const maxDuration = 30;
 type AnswerRequest = {
   wordId: string;
   tier: ReviewTier;
+  // Reversed cards (English shown, word picked) grade against the word
+  // itself. Absent means the classic to-English direction.
+  direction?: ReviewDirection;
   submitted?: string;
   // "Show answer" pressed: grade as a miss without an attempt.
   concede?: boolean;
@@ -45,11 +48,16 @@ export async function POST(req: Request) {
     if (wordError) throw wordError;
 
     // Easy tier is multiple choice -- clicked options must match exactly,
-    // so the synonym fallback stays off there.
+    // so the synonym fallback stays off there. Reversed multiple choice
+    // grades against the word itself, deterministically (options are the
+    // stored strings, so a click is never a near-miss).
+    const direction = data.direction === "to_target" ? "to_target" : "to_english";
     const correct = concede
       ? false
       : tier === "hard"
       ? await gradeColdRecall(submitted, word.arabizi)
+      : direction === "to_target"
+      ? gradeDeterministic(tier, submitted, { arabizi: word.arabizi, english: word.english }, direction) === true
       : await gradeRecognition(submitted, word.english, { llmFallback: tier === "medium" });
 
     const rating = !correct ? 0 : hinted ? 1 : tier === "hard" ? 3 : 2;

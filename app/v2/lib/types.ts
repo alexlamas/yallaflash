@@ -65,6 +65,20 @@ export interface V2Message {
 // the answer maps to a rating for calculateNextReview. See docs/v2-plan.md.
 export type ReviewTier = "easy" | "medium" | "hard";
 
+// Which side of the word a card asks for. "to_english" (default, and the
+// value assumed when absent on older persisted widgets) shows the word and
+// asks for the meaning; "to_target" shows the English and asks for the word.
+export type ReviewDirection = "to_english" | "to_target";
+
+// An optional sentence wrapped around a review card for variety. On
+// recognition cards `target` is shown as-is (its translation is NEVER stored
+// here -- it would leak the meaning being tested); on production cards the
+// word is blanked out of `target` and `english` is shown as the cue.
+export interface ReviewContext {
+  target: string;
+  english?: string;
+}
+
 export interface WordProposal {
   arabizi: string;
   english: string;
@@ -108,6 +122,13 @@ export type Widget =
       prompt: string;
       cue: ReviewCue;
       options: string[];
+      // Absent means "to_english" (older persisted widgets). "to_target"
+      // flips the card: English cue, romanization options.
+      direction?: ReviewDirection;
+      // Visual theme dealt at build time (see cardFlavors.ts) -- purely
+      // presentational; absent renders as the classic look.
+      flavor?: string;
+      context?: ReviewContext;
       // Ground truth for instant client-side grading -- never shown on the
       // card. Optional: widgets persisted before this field existed lack it,
       // and those fall back to server grading.
@@ -119,6 +140,8 @@ export type Widget =
       tier: ReviewTier;
       prompt: string;
       cue: ReviewCue;
+      flavor?: string;
+      context?: ReviewContext;
       answer?: ReviewAnswer;
     }
   | {
@@ -127,6 +150,10 @@ export type Widget =
       tier: ReviewTier;
       prompt: string;
       cue: ReviewCue;
+      flavor?: string;
+      // On this tier `context.target` arrives with the word already blanked
+      // out server-side, and `context.english` is safe to show.
+      context?: ReviewContext;
       answer?: ReviewAnswer;
       // Safe on this tier only: the card already shows the English meaning,
       // so a concept image reinforces the cue without leaking the answer.

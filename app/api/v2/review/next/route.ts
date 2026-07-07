@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
-import { buildReviewWidget, getDefaultLanguageId, tierForProgress } from "@/app/v2/lib/tools";
+import { buildReviewWidget, buildServedLine, getDefaultLanguageId, tierForProgress } from "@/app/v2/lib/tools";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Serves the next due card deterministically -- one DB round trip, no model
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
         .single();
       if (wordError) throw wordError;
 
-      const served = `[SERVED] word_id=${word.id} arabizi="${word.arabizi}" english="${word.english}" tier=${commitWidget.tier} -- the app served this card directly; the user hasn't answered yet. The card asks for ${commitWidget.tier === "hard" ? "the arabizi from memory" : "the English meaning"}.`;
+      const served = buildServedLine(word, commitWidget);
       const { error: servedError } = await supabase
         .from("v2_messages")
         .insert({ conversation_id: conversationId, role: "user", content: served, widgets: [] });
@@ -108,7 +108,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ widget });
     }
 
-    const served = `[SERVED] word_id=${word.id} arabizi="${word.arabizi}" english="${word.english}" tier=${tier} -- the app served this card directly; the user hasn't answered yet. The card asks for ${tier === "hard" ? "the arabizi from memory" : "the English meaning"}.`;
+    const served = buildServedLine(
+      word,
+      widget as Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>
+    );
     const { error: servedError } = await supabase
       .from("v2_messages")
       .insert({ conversation_id: conversationId, role: "user", content: served, widgets: [] });

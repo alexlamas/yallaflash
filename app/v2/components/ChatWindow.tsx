@@ -749,7 +749,10 @@ export function ChatWindow() {
     setError(null);
     const widget = widgetForKey(key);
     const review = widget && isReviewWidget(widget) ? widget : null;
-    const instant = review?.answer ? gradeDeterministic(tier, submitted, review.answer) : null;
+    // Reversed multiple choice grades against the word itself -- the widget
+    // knows its own direction; older widgets default to to-English.
+    const direction = review?.type === "quiz_mc" ? review.direction : undefined;
+    const instant = review?.answer ? gradeDeterministic(tier, submitted, review.answer, direction) : null;
     const hinted = hintedRef.current.has(wordId);
     hintedRef.current.delete(wordId);
 
@@ -775,7 +778,7 @@ export function ChatWindow() {
       lastReviewedRef.current = wordId;
       prefetchNext(wordId);
       try {
-        const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
+        const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, direction, submitted, hinted });
         refreshProgress();
         patchVerdict(verdictId, {
           correct: result.correct,
@@ -802,7 +805,7 @@ export function ChatWindow() {
     // fallback rules, then the verdict lands as one transition.
     setChecking(true);
     try {
-      const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
+      const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, direction, submitted, hinted });
       recordAnswered(key);
       reviewHaptic(result.correct);
       refreshProgress();
@@ -1072,6 +1075,7 @@ export function ChatWindow() {
       const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", {
         wordId: widget.word_id,
         tier: widget.tier,
+        direction: widget.type === "quiz_mc" ? widget.direction : undefined,
         concede: true,
       });
       refreshProgress();

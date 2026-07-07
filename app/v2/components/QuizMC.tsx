@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
+import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { ContextSentence } from "./ReviewContext";
 import type { Widget } from "@/app/v2/lib/types";
 
 type QuizMCWidget = Extract<Widget, { type: "quiz_mc" }>;
@@ -24,6 +26,10 @@ export function QuizMC({
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const done = answered || selected !== null;
+  const styles = flavorStyles(widget.flavor);
+  // Reversed cards cue with English and offer word options; the cue block
+  // just renders whichever side the widget carries.
+  const cueWord = widget.cue.arabizi ?? widget.cue.english;
 
   const handleSelect = async (option: string) => {
     if (done) return;
@@ -49,27 +55,36 @@ export function QuizMC({
   }, [active, selected, widget.options]);
 
   const card = (
-    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm", styles.card)}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
           <div className={active ? "text-4xl" : "text-2xl"} dir={DEFAULT_LANGUAGE.scriptDir}>
             {widget.cue.script}
           </div>
         )}
-        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
-          {widget.cue.arabizi}
+        <div className={cn(active ? "text-3xl font-title" : "text-lg font-medium", styles.cue)}>
+          {cueWord}
         </div>
-        <div className="text-sm text-subtle">{widget.prompt}</div>
+        {widget.context && (
+          <ContextSentence
+            text={widget.context.target}
+            highlight={widget.cue.arabizi}
+            className={styles.context}
+            highlightClassName={styles.highlight}
+          />
+        )}
+        <div className={cn("text-sm", styles.muted)}>{widget.prompt}</div>
         <div className="grid gap-2 pt-1">
           {widget.options.map((option, index) => (
             <Button
               key={option}
               variant="outline"
               className={cn(
-                "justify-start h-auto py-2.5 text-left whitespace-normal hover:border-green-400 hover:bg-green-50/50",
+                "justify-start h-auto py-2.5 text-left whitespace-normal",
+                styles.option,
                 // Neutral selected state -- the verdict card says right/wrong,
                 // a green highlight here would imply "correct" prematurely.
-                selected === option && "border-gray-400 bg-gray-50"
+                selected === option && styles.optionSelected
               )}
               disabled={done}
               onClick={() => handleSelect(option)}
@@ -77,7 +92,10 @@ export function QuizMC({
               {active && (
                 <kbd
                   aria-hidden="true"
-                  className="mr-2 hidden sm:flex h-5 w-5 items-center justify-center rounded border border-b-2 border-gray-200 bg-gray-50 font-mono text-[11px] text-disabled"
+                  className={cn(
+                    "mr-2 hidden sm:flex h-5 w-5 items-center justify-center rounded border border-b-2 font-mono text-[11px]",
+                    styles.kbd
+                  )}
                 >
                   {index + 1}
                 </kbd>
