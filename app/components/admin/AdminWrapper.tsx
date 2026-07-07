@@ -42,6 +42,7 @@ export function AdminWrapper({ children }: { children: React.ReactNode }) {
   if (pathname.includes("/users")) activeTab = "users";
   else if (pathname.includes("/review")) activeTab = "review";
   else if (pathname.includes("/packs")) activeTab = "packs";
+  else if (pathname.includes("/images")) activeTab = "images";
   else if (pathname.includes("/songs")) activeTab = "songs";
   else if (pathname.includes("/instagram")) activeTab = "instagram";
   else if (pathname.includes("/design-system")) activeTab = "design-system";
@@ -55,6 +56,7 @@ export function AdminWrapper({ children }: { children: React.ReactNode }) {
     { key: "review", label: "Review", href: "/admin/review" },
     ...(isAdmin || isReviewer ? [
       { key: "packs", label: "Packs", href: "/admin/packs" },
+      { key: "images", label: "Images", href: "/admin/images" },
     ] : []),
     { key: "songs", label: "Songs", href: "/admin/songs" },
     ...(isAdmin ? [
