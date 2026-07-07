@@ -958,11 +958,6 @@ export function ChatWindow() {
       return;
     }
     setError(null);
-    // Advancing makes any in-flight commentary about the PREVIOUS word --
-    // hide its typing indicator now instead of letting it linger under the
-    // new card. The reply itself still lands (spliced above this card by
-    // sendMessage's race guard).
-    setCommentaryPending(false);
 
     const cached = prefetchRef.current;
     if (!ahead && cached && cached.word_id !== excludeWordId) {

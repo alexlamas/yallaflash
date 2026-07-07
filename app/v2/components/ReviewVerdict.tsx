@@ -53,7 +53,7 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
           >
             <Icon className="h-3.5 w-3.5 text-white" strokeWidth={3} aria-hidden="true" />
           </motion.span>
-          <span className="text-sm font-semibold">{heading}</span>
+          <span className="text-xs font-semibold tracking-wide uppercase">{heading}</span>
         </div>
         {widget.image_url && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -76,17 +76,16 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
             You said <span className="line-through decoration-red-300 decoration-1">{widget.submitted}</span>
           </div>
         )}
-        {/* Quiet sentence-case footnote. Instant verdicts render before the
-            schedule write returns; the real date is patched in a moment later
-            (tabular-nums keeps the swap from shifting) -- or flagged plainly
-            if the write died. */}
+        {/* Telemetry voice, matching the progress panel's microlabels. Instant
+            verdicts render before the schedule write returns; the real date is
+            patched in a moment later -- or flagged plainly if the write died. */}
         {widget.save_failed ? (
-          <div className="pt-1 text-xs text-red-600">
-            Couldn&apos;t save — this word will come up again
+          <div className="pt-1 font-mono text-[10px] tracking-[0.12em] uppercase text-red-600 tabular-nums">
+            couldn&apos;t save — this word will come up again
           </div>
         ) : (
-          <div className="pt-1 text-xs text-subtle tabular-nums">
-            Next review {widget.next_review_date ? relativeTime(widget.next_review_date) : "..."}
+          <div className="pt-1 font-mono text-[10px] tracking-[0.12em] uppercase text-subtle tabular-nums">
+            next review {widget.next_review_date ? relativeTime(widget.next_review_date) : "..."}
           </div>
         )}
       </CardContent>
