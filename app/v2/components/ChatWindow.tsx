@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Drawer, DrawerContent, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { WidgetRenderer, type WidgetActions } from "./WidgetRenderer";
@@ -1298,18 +1298,28 @@ export function ChatWindow() {
             />
           </div>
           <span className="text-xs font-mono text-subtle tabular-nums">{progressPercent}%</span>
-          <Sheet>
-            <SheetTrigger asChild>
-              <button className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white shadow-sm px-3 py-1.5 text-xs font-medium text-heading">
+          {/* Bottom drawer (drag-to-dismiss) rather than a side sheet --
+              the native pattern for supplementary panels on phones. */}
+          <Drawer>
+            <DrawerTrigger asChild>
+              <button
+                onClick={() => tapHaptic()}
+                className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white shadow-sm px-3 py-1.5 text-xs font-medium text-heading"
+              >
                 <Trees className="h-3.5 w-3.5 text-green-600" />
                 {dueNow > 0 ? `${dueNow} due` : "Progress"}
               </button>
-            </SheetTrigger>
-            <SheetContent side="right" className="p-0 w-[320px] bg-gray-50">
-              <SheetTitle className="sr-only">Progress</SheetTitle>
-              <ProgressPanel data={progressData} />
-            </SheetContent>
-          </Sheet>
+            </DrawerTrigger>
+            <DrawerContent
+              className="h-[86dvh] bg-gray-50"
+              style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+            >
+              <DrawerTitle className="sr-only">Progress</DrawerTitle>
+              <div className="flex-1 min-h-0">
+                <ProgressPanel data={progressData} />
+              </div>
+            </DrawerContent>
+          </Drawer>
         </div>
         {earlierMessages.length > 0 && (
           <button
