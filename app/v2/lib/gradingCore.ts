@@ -5,7 +5,11 @@ import { DEFAULT_LANGUAGE } from "./language";
 // verdict path. Nothing here may import the Anthropic SDK -- model-dependent
 // judgment (synonyms, typo tolerance) lives in grading.ts.
 
-export const NEAR_MISS_MAX_DISTANCE_RATIO = 0.25;
+// Up to half the collapsed answer may differ before an answer is an instant
+// miss. Deliberately wide: a wrong-but-related answer costs one fast model
+// check behind the visible "checking" state, which beats flashing a wrong
+// verdict that the tutor then overturns in chat.
+export const NEAR_MISS_MAX_DISTANCE_RATIO = 0.5;
 
 export function normalize(input: string): string {
   return input
@@ -13,6 +17,27 @@ export function normalize(input: string): string {
     .trim()
     .replace(/[.,!?;:'"]/g, "")
     .replace(/\s+/g, " ");
+}
+
+/**
+ * Arabizi has no standard orthography: the same spoken word is legitimately
+ * written many ways (2/q for qaf-as-hamza, o/u, e/i/y vowels, ch/sh,
+ * doubled letters for emphasis). Collapse those equivalences so pure
+ * spelling variance compares as equal -- "fisto2"/"fustuq" and
+ * "kteer"/"ktir" are the same word, not near-misses. Genuinely different
+ * sounds (3, 7 vs h, k vs q's plosive reading) are NOT merged; those still
+ * go through the near-miss band to the model.
+ */
+export function normalizeRomanization(input: string): string {
+  return normalize(input)
+    .replace(/ch/g, "sh")
+    .replace(/q/g, "2")
+    .replace(/[éè]/g, "i")
+    .replace(/e/g, "i")
+    .replace(/y/g, "i")
+    .replace(/o/g, "u")
+    .replace(/(.)\1+/g, "$1")
+    .replace(/[\s-]+/g, " ");
 }
 
 export function levenshtein(a: string, b: string): number {
@@ -68,13 +93,20 @@ export function gradeDeterministic(
   if (tier === "hard") {
     const b = normalize(answer.arabizi);
     if (a === b) return true;
+    // Same word under romanization equivalences = correct, not a near-miss:
+    // the user knows the word, they just spell it differently.
+    const ar = normalizeRomanization(submitted);
+    const br = normalizeRomanization(answer.arabizi);
+    if (ar === br) return true;
     // The floor is a language knob (see language.ts): romanization spelling
     // variance means short words need a real uncertainty band for the model.
+    // Distance is measured on the equivalence-collapsed forms so vowel
+    // spelling never eats into the typo budget.
     const nearMissThreshold = Math.max(
       DEFAULT_LANGUAGE.nearMissFloor,
-      Math.round(b.length * NEAR_MISS_MAX_DISTANCE_RATIO)
+      Math.round(br.length * NEAR_MISS_MAX_DISTANCE_RATIO)
     );
-    return levenshtein(a, b) <= nearMissThreshold ? null : false;
+    return levenshtein(ar, br) <= nearMissThreshold ? null : false;
   }
 
   if (englishVariants(answer.english).includes(a)) return true;

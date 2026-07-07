@@ -212,10 +212,14 @@ export async function POST(req: Request) {
     // Hint-leak guard: while a served card is unanswered, a word_card for
     // that word (e.g. from get_word_detail during a hint) would reveal the
     // hidden side. Strip it deterministically -- prompts alone don't hold.
-    const openCardWordId = findOpenCardWordId(rows);
+    const openCard = findOpenCard(rows);
     const safeWidgets = widgets.filter(
-      (w) => !(w.type === "word_card" && openCardWordId && w.word.id === openCardWordId)
+      (w) => !(w.type === "word_card" && openCard && w.word.id === openCard.wordId)
     );
+    // Same guard for the reply text: the model's natural way to reference the
+    // open card ("the 'l leyle' card is still waiting") names it by exactly
+    // the side the card is quizzing. Swap the hidden side for the shown one.
+    if (openCard) finalText = scrubOpenCardAnswer(finalText, openCard);
 
     const assistantMessage = await insertMessage(supabase, conversationId, "assistant", finalText, safeWidgets);
     return NextResponse.json({ conversationId, message: assistantMessage });
@@ -229,8 +233,11 @@ export async function POST(req: Request) {
 }
 
 // The word on the table: the most recent [SERVED] card with no later
-// [REVIEW RESULT] for the same word.
-function findOpenCardWordId(rows: { role: string; content: string }[]): string | null {
+// [REVIEW RESULT] for the same word. Also parses which side the card shows
+// and which it hides, so the reply text can be scrubbed of the answer.
+type OpenCard = { wordId: string; shown: string; hidden: string };
+
+function findOpenCard(rows: { role: string; content: string }[]): OpenCard | null {
   const answered = new Set<string>();
   for (let i = rows.length - 1; i >= 0; i--) {
     const content = rows[i].content;
@@ -238,11 +245,28 @@ function findOpenCardWordId(rows: { role: string; content: string }[]): string |
       const match = content.match(/word_id=(\S+)/);
       if (match) answered.add(match[1]);
     } else if (content.startsWith("[SERVED]")) {
-      const match = content.match(/word_id=(\S+)/);
-      if (match) return answered.has(match[1]) ? null : match[1];
+      const match = content.match(/word_id=(\S+) arabizi="([^"]*)" english="([^"]*)" tier=(\S+)/);
+      if (!match) return null;
+      const [, wordId, arabizi, english, tier] = match;
+      if (answered.has(wordId)) return null;
+      // tier=hard asks for the arabizi (english shown); other tiers ask for
+      // the english meaning (arabizi shown).
+      return tier === "hard"
+        ? { wordId, shown: english, hidden: arabizi }
+        : { wordId, shown: arabizi, hidden: english };
     }
   }
   return null;
+}
+
+// Replace any mention of the open card's hidden side with its shown side, so
+// "the 'l leyle' card is still waiting" becomes "the 'tonight' card is still
+// waiting". Consumes wrapping quotes to avoid doubling them.
+function scrubOpenCardAnswer(text: string, card: OpenCard): string {
+  if (!card.hidden.trim()) return text;
+  const escaped = card.hidden.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`["'‘’“”]?\\b${escaped}\\b["'‘’“”]?`, "gi");
+  return text.replace(pattern, `"${card.shown}"`);
 }
 
 async function createConversation(

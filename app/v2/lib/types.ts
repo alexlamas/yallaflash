@@ -128,6 +128,10 @@ export type Widget =
       prompt: string;
       cue: ReviewCue;
       answer?: ReviewAnswer;
+      // Safe on this tier only: the card already shows the English meaning,
+      // so a concept image reinforces the cue without leaking the answer.
+      // Recognition tiers must never carry one -- the image IS the meaning.
+      image_url?: string | null;
     }
   | { type: "add_words_preview"; proposals: WordProposal[] }
   // Zero-due moment: fresh reservoir words (pack words the user hasn't

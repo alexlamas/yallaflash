@@ -51,7 +51,7 @@ export async function gradeColdRecall(
   if (certain !== null) return certain;
 
   return askYesNo(
-    `Expected ${DEFAULT_LANGUAGE.name} ${DEFAULT_LANGUAGE.romanization} spelling: "${expectedArabizi}"\nUser's answer: "${submitted}"\n\nIs the user's answer a minor typo or acceptable alternate spelling of the SAME word (not a different word)? Reply with exactly one word: yes or no.`
+    `Expected ${DEFAULT_LANGUAGE.name} ${DEFAULT_LANGUAGE.romanization} spelling: "${expectedArabizi}"\nUser's answer: "${submitted}"\n\n${DEFAULT_LANGUAGE.romanization} has no standard orthography: vowels vary freely (kteer/ktir, bne2/bina2), and 2/q, o/u, e/i, ch/sh are interchangeable. Judge by pronunciation, not spelling: would a Lebanese speaker reading the user's answer aloud say the SAME word? Say yes for any plausible spelling of the same spoken word; say no only if it reads as a different word or a real consonant is wrong or missing. Reply with exactly one word: yes or no.`
   );
 }
 
