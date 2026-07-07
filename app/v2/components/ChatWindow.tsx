@@ -958,6 +958,11 @@ export function ChatWindow() {
       return;
     }
     setError(null);
+    // Advancing makes any in-flight commentary about the PREVIOUS word --
+    // hide its typing indicator now instead of letting it linger under the
+    // new card. The reply itself still lands (spliced above this card by
+    // sendMessage's race guard).
+    setCommentaryPending(false);
 
     const cached = prefetchRef.current;
     if (!ahead && cached && cached.word_id !== excludeWordId) {
@@ -1102,6 +1107,9 @@ export function ChatWindow() {
   }
 
   const reviewPending = pending !== null && isReviewWidget(pending.widget);
+  // Mid-session = a review card is waiting or we're parked on its verdict;
+  // the progress panel drops its call-to-action and holds still.
+  const inReviewSession = reviewPending || verdictShowing;
 
   // Session-start hero: a returning user's first screen is a real "ready to
   // review" moment, not a lone chat bubble floating in gradient. Waits for
@@ -1147,6 +1155,12 @@ export function ChatWindow() {
     // Verdict screen: the user decides when the turn ends. Digging in
     // (explain, example) keeps the tutor on THIS word; Enter advances.
     if (verdictShowing) {
+      // One-tap dispute on a miss: the tutor sees the submitted answer in
+      // [REVIEW RESULT] and regrades when the case is fair.
+      const verdict = (visibleMessages[verdictIndex!].widgets ?? []).find(
+        (w): w is Extract<Widget, { type: "review_verdict" }> => w.type === "review_verdict"
+      );
+      const disputable = verdict && !verdict.correct && !verdict.conceded;
       return [
         {
           label: "Next word",
@@ -1154,6 +1168,15 @@ export function ChatWindow() {
           primary: true,
           onClick: () => serveNext(lastReviewedRef.current ?? undefined),
         },
+        ...(disputable
+          ? [
+              {
+                label: "I was right",
+                onClick: () =>
+                  sendMessage("My answer was actually right — regrade it if that's fair."),
+              },
+            ]
+          : []),
         { label: "Explain more", onClick: () => sendMessage("Tell me more about this word") },
         { label: "Give an example", onClick: () => sendMessage("Use it in an example sentence") },
       ];
@@ -1320,6 +1343,7 @@ export function ChatWindow() {
               <div className="flex-1 min-h-0">
                 <ProgressPanel
                   data={progressData}
+                  reviewing={inReviewSession}
                   onPrompt={(text) => {
                     setProgressOpen(false);
                     void sendMessage(text);
@@ -1593,7 +1617,11 @@ export function ChatWindow() {
       </div>
 
       <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-gray-50/60">
-        <ProgressPanel data={progressData} onPrompt={(text) => void sendMessage(text)} />
+        <ProgressPanel
+          data={progressData}
+          reviewing={inReviewSession}
+          onPrompt={(text) => void sendMessage(text)}
+        />
       </aside>
     </div>
     </MotionConfig>

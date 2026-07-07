@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ProgressState } from "@/app/v2/lib/types";
@@ -81,6 +81,8 @@ interface FoldWord {
 const FOLD_SHOWN = 40;
 const ASLEEP_SLOTS = 16;
 
+const KIND_RANK: Record<WordKind, number> = { strong: 0, ok: 1, fading: 2, asleep: 3 };
+
 // Curated, not proportional: the words that need you get guaranteed slots.
 // Every due word makes the page (up to a cap, most recently slipped first),
 // then the strongest fill the rest as backdrop -- so the fold surfaces what
@@ -99,26 +101,26 @@ function buildFold(words: ProgressWord[], now: number): FoldWord[] {
     .filter((c) => c.kind === "asleep")
     .sort((a, b) => new Date(b.word.next_review_date).getTime() - new Date(a.word.next_review_date).getTime())
     .slice(0, ASLEEP_SLOTS);
+  // Select by retention, but DISPLAY in stable order (band, then alphabetical)
+  // so tiny retention drifts between refreshes don't reshuffle the page while
+  // someone is mid-session -- only band changes move a word.
   const awake = classified
     .filter((c) => c.kind !== "asleep")
     .sort((a, b) => b.r - a.r)
-    .slice(0, FOLD_SHOWN - asleep.length);
+    .slice(0, FOLD_SHOWN - asleep.length)
+    .sort(
+      (a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.word.arabizi.localeCompare(b.word.arabizi)
+    );
 
   // Reading order is the axis: strongest ink first, ghosts last.
   return [...awake, ...asleep];
 }
 
-function FoldCard({
-  data,
-  now,
-  onPrompt,
-}: {
-  data: ProgressData;
-  now: number;
-  onPrompt: (text: string) => void;
-}) {
+function FoldCard({ data, onPrompt }: { data: ProgressData; onPrompt: (text: string) => void }) {
   const [hovered, setHovered] = useState<FoldWord | null>(null);
-  const fold = buildFold(data.words, now);
+  // Recompute only when fresh data lands, never on the clock tick -- the
+  // page holding still matters more than second-level decay accuracy.
+  const fold = useMemo(() => buildFold(data.words, Date.now()), [data.words]);
   const foldAt = fold.findIndex((f) => f.kind === "asleep");
   const startedTotal = data.counts.learning + data.counts.learned;
 
@@ -198,12 +200,8 @@ function FoldCard({
             </div>
           </div>
         ) : (
-          <div className="h-full flex items-center gap-3 px-1.5 text-[10px] font-mono text-subtle">
-            <span>
-              fading in memory order -- reviews lift words{" "}
-              <span className="text-heading font-semibold">back above the fold</span>
-            </span>
-            <span className="ml-auto text-disabled shrink-0">tap to quiz</span>
+          <div className="h-full flex items-center justify-end px-1.5 text-[10px] font-mono text-disabled">
+            tap a word to quiz it
           </div>
         )}
       </div>
@@ -336,9 +334,13 @@ function Stats({ data, now }: { data: ProgressData; now: number }) {
 export function ProgressPanel({
   data,
   onPrompt,
+  reviewing = false,
 }: {
   data: ProgressData | null;
   onPrompt?: (text: string) => void;
+  /** true while a review card or verdict is on screen -- the panel goes
+   * quiet: no competing call-to-action, the fold and stats hold still. */
+  reviewing?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
 
@@ -378,8 +380,8 @@ export function ProgressPanel({
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-3 gap-2.5">
-      <FoldCard data={data} now={now} onPrompt={send} />
-      <NextAction data={data} now={now} onPrompt={send} />
+      <FoldCard data={data} onPrompt={send} />
+      {!reviewing && <NextAction data={data} now={now} onPrompt={send} />}
       <Stats data={data} now={now} />
     </div>
   );
