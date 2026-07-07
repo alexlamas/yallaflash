@@ -1,4 +1,4 @@
-import type { ReviewTier } from "./types";
+import type { ReviewDirection, ReviewTier } from "./types";
 import { DEFAULT_LANGUAGE } from "./language";
 
 // Pure grading logic shared by the server grader and the client's instant
@@ -85,10 +85,18 @@ export function englishVariants(expectedEnglish: string): string[] {
 export function gradeDeterministic(
   tier: ReviewTier,
   submitted: string,
-  answer: { arabizi: string; english: string }
+  answer: { arabizi: string; english: string },
+  direction: ReviewDirection = "to_english"
 ): boolean | null {
   const a = normalize(submitted);
   if (!a) return false;
+
+  // Reversed multiple choice (English shown, word options): options are the
+  // stored strings, so the click either matches the word or it doesn't --
+  // never a near-miss, never a model call.
+  if (direction === "to_target" && tier !== "hard") {
+    return normalizeRomanization(submitted) === normalizeRomanization(answer.arabizi);
+  }
 
   if (tier === "hard") {
     const b = normalize(answer.arabizi);

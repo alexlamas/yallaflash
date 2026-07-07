@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
+import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { ContextSentence } from "./ReviewContext";
 import type { Widget } from "@/app/v2/lib/types";
 
 type RecallInputWidget = Extract<Widget, { type: "recall_input" }>;
@@ -26,6 +28,7 @@ export function RecallInput({
   const [value, setValue] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const done = answered || submitted;
+  const styles = flavorStyles(widget.flavor);
 
   const handleSubmit = async () => {
     if (done || !value.trim()) return;
@@ -37,17 +40,25 @@ export function RecallInput({
   };
 
   const card = (
-    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm", styles.card)}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
           <div className={active ? "text-4xl" : "text-2xl"} dir={DEFAULT_LANGUAGE.scriptDir}>
             {widget.cue.script}
           </div>
         )}
-        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
+        <div className={cn(active ? "text-3xl font-title" : "text-lg font-medium", styles.cue)}>
           {widget.cue.arabizi}
         </div>
-        <div className="text-sm text-subtle">{widget.prompt}</div>
+        {widget.context && (
+          <ContextSentence
+            text={widget.context.target}
+            highlight={widget.cue.arabizi}
+            className={styles.context}
+            highlightClassName={styles.highlight}
+          />
+        )}
+        <div className={cn("text-sm", styles.muted)}>{widget.prompt}</div>
         <div className="flex gap-2">
           <Input
             value={value}
@@ -61,12 +72,9 @@ export function RecallInput({
             // enter should read as submitting one.
             autoCapitalize="none"
             enterKeyHint="send"
+            className={styles.input}
           />
-          <Button
-            disabled={done || !value.trim()}
-            onClick={handleSubmit}
-            className="bg-green-600 hover:bg-green-700"
-          >
+          <Button disabled={done || !value.trim()} onClick={handleSubmit} className={styles.button}>
             Submit
           </Button>
         </div>

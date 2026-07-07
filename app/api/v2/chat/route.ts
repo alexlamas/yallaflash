@@ -5,6 +5,7 @@ import { getApiAuth } from "@/utils/supabase/api";
 import { incrementUsage } from "@/app/services/aiUsageService";
 import { errorMessage } from "@/app/api/utils";
 import { DEFAULT_TUTOR_INSTRUCTIONS, TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
+import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/lib/tools";
 import type { Widget } from "@/app/v2/lib/types";
 
@@ -20,8 +21,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = "claude-sonnet-5";
 const MAX_TOOL_ITERATIONS = 5;
 
-const ONBOARDING_GREETING =
-  "Hey! I'm your Lebanese Arabic tutor. Want to add some words you already have in mind, or browse a starter pack to get going?";
+const ONBOARDING_GREETING = `Hey! I'm your ${DEFAULT_LANGUAGE.name} tutor. Want to add some words you already have in mind, or browse a starter pack to get going?`;
 
 type ChatRequest = {
   conversationId?: string;
@@ -249,9 +249,12 @@ function findOpenCard(rows: { role: string; content: string }[]): OpenCard | nul
       if (!match) return null;
       const [, wordId, arabizi, english, tier] = match;
       if (answered.has(wordId)) return null;
-      // tier=hard asks for the arabizi (english shown); other tiers ask for
-      // the english meaning (arabizi shown).
-      return tier === "hard"
+      // The asks= token says which side the card hides (formats vary within
+      // a tier now -- reversed multiple choice hides the word on the easy
+      // tier). Older persisted lines lack it; fall back to the tier rule.
+      const asksMatch = content.match(/asks=(arabizi|english)/);
+      const hidesWord = asksMatch ? asksMatch[1] === "arabizi" : tier === "hard";
+      return hidesWord
         ? { wordId, shown: english, hidden: arabizi }
         : { wordId, shown: arabizi, hidden: english };
     }

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
+import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { ContextSentence } from "./ReviewContext";
 import type { Widget } from "@/app/v2/lib/types";
 
 type ProduceColdWidget = Extract<Widget, { type: "produce_cold" }>;
@@ -26,6 +28,7 @@ export function ProduceCold({
   const [value, setValue] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const done = answered || submitted;
+  const styles = flavorStyles(widget.flavor);
 
   const handleSubmit = async () => {
     if (done || !value.trim()) return;
@@ -37,7 +40,7 @@ export function ProduceCold({
   };
 
   const card = (
-    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
+    <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm", styles.card)}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.image_url && active && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -47,11 +50,20 @@ export function ProduceCold({
             className="h-24 w-24 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
           />
         )}
-        <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
+        <div className={cn(active ? "text-3xl font-title" : "text-lg font-medium", styles.cue)}>
           {widget.cue.english}
         </div>
-        {widget.cue.memory_hook && <div className="text-xs text-subtle">{widget.cue.memory_hook}</div>}
-        <div className="text-sm text-subtle">{widget.prompt}</div>
+        {widget.cue.memory_hook && <div className={cn("text-xs", styles.muted)}>{widget.cue.memory_hook}</div>}
+        {widget.context && (
+          // Cloze: the word arrives already blanked out of the sentence, so
+          // showing the translation alongside is leak-safe on this tier.
+          <ContextSentence
+            text={widget.context.target}
+            translation={widget.context.english}
+            className={styles.context}
+          />
+        )}
+        <div className={cn("text-sm", styles.muted)}>{widget.prompt}</div>
         <div className="flex gap-2">
           <Input
             value={value}
@@ -61,12 +73,9 @@ export function ProduceCold({
             placeholder={DEFAULT_LANGUAGE.producePlaceholder}
             aria-label={widget.prompt}
             autoFocus={active}
+            className={styles.input}
           />
-          <Button
-            disabled={done || !value.trim()}
-            onClick={handleSubmit}
-            className="bg-green-600 hover:bg-green-700"
-          >
+          <Button disabled={done || !value.trim()} onClick={handleSubmit} className={styles.button}>
             Submit
           </Button>
         </div>

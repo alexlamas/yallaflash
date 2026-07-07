@@ -65,6 +65,17 @@ describe("gradeDeterministic", () => {
     expect(gradeDeterministic("easy", "slowly", answer)).toBe(false);
   });
 
+  it("grades reversed MC against the word itself, never deferring", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    expect(gradeDeterministic("easy", "ktir", answer, "to_target")).toBe(true);
+    // Options are stored strings, but spelling equivalence still holds.
+    expect(gradeDeterministic("easy", "kteer", answer, "to_target")).toBe(true);
+    // A wrong click that happens to be CLOSE must not enter the near-miss
+    // band -- the user saw the options and picked a different word.
+    expect(gradeDeterministic("easy", "kbir", answer, "to_target")).toBe(false);
+    expect(gradeDeterministic("easy", "shway", answer, "to_target")).toBe(false);
+  });
+
   it("decides exact typed recall instantly, defers synonyms", async () => {
     const { gradeDeterministic } = await import("../gradingCore");
     expect(gradeDeterministic("medium", "very", answer)).toBe(true);
