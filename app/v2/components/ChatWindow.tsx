@@ -394,7 +394,10 @@ export function ChatWindow() {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Enter" && event.key.toLowerCase() !== "n") return;
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      // Buttons handle their own Enter -- firing the shortcut too would
+      // trigger a focused chip AND advance in the same keypress.
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "BUTTON"))
+        return;
       if (pending || loading || checking) return;
       if (verdictShowing) serveNext(lastReviewedRef.current ?? undefined);
     };
@@ -1012,7 +1015,9 @@ export function ChatWindow() {
     !(visibleMessages[0].widgets ?? []).some((w) => w.type === "onboarding_choice");
 
   const chips: { label: string; kbd?: string; primary?: boolean; onClick: () => void }[] = (() => {
-    if (loading || messages.length === 0 || showHero) return [];
+    // checking included: Show answer/Skip during the model-fallback grade
+    // would double-grade the same card.
+    if (loading || checking || messages.length === 0 || showHero) return [];
     if (pending) {
       if (reviewPending) {
         const reviewWidget = pending.widget as ReviewWidget;
