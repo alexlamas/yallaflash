@@ -21,14 +21,17 @@ export function ServiceWorkerRegistration() {
       return;
     }
 
-    window.addEventListener("load", () => {
-      navigator.serviceWorker
-        .register("/sw.js")
-        .then(() => {
-        })
-        .catch(() => {
-        });
-    });
+    const register = () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    };
+    // The load event may have already fired by the time hydration runs
+    // this effect, in which case the listener would never fire.
+    if (document.readyState === "complete") {
+      register();
+      return;
+    }
+    window.addEventListener("load", register);
+    return () => window.removeEventListener("load", register);
   }, []);
 
   return null;
