@@ -18,7 +18,6 @@ import {
   SmileyNervous,
   Balloon,
   Lightbulb,
-  CircleNotch,
   NoteBlank,
 } from "@phosphor-icons/react";
 import { ArrowRight } from "lucide-react";
@@ -83,6 +82,7 @@ export function Review() {
 
     setIsLoadingHint(true);
     setHintError(null);
+    setHint("");
 
     try {
       const response = await fetch("/api/generate-hint", {
@@ -101,20 +101,36 @@ export function Review() {
         } else {
           setHintError("Failed to generate hint");
         }
+        setHint(null);
         return;
       }
 
-      const data = await response.json();
-      setHint(data.hint);
+      const reader = response.body?.getReader();
+      if (!reader) {
+        setHintError("Failed to generate hint");
+        setHint(null);
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        accumulated += decoder.decode(value, { stream: true });
+        setHint(accumulated);
+      }
+
       refreshUsage();
     } catch {
       setHintError("Failed to generate hint");
+      setHint(null);
     } finally {
       setIsLoadingHint(false);
     }
   };
 
-  // Load the first word when component mounts (only once)
   useEffect(() => {
     if (!hasLoadedRef.current && session?.user) {
       hasLoadedRef.current = true;
@@ -122,7 +138,6 @@ export function Review() {
     }
   }, [loadNextWord, session?.user]);
 
-  // Fetch sentences when word changes
   useEffect(() => {
     if (currentWord?.id) {
       SentenceService.getSentencesForWord(currentWord.id).then(setSentences);
@@ -132,7 +147,6 @@ export function Review() {
   const handleRating = async (rating: number) => {
     if (!session?.user || !currentWord) return;
 
-    // Show feedback animation
     const feedbackText =
       rating === 0
         ? "Forgot"
@@ -171,10 +185,8 @@ export function Review() {
         )
     );
 
-    // Track review for funnel analysis
     posthog.capture("word_reviewed", { rating });
 
-    // Calculate next review time text
     let nextReviewText = "";
     if (result && result.nextReview) {
       const formattedTime = formatTimeUntilReview(
@@ -211,12 +223,10 @@ export function Review() {
     fetchReviewCount();
     window.dispatchEvent(new CustomEvent("wordProgressUpdated"));
 
-    // Clear animation to trigger exit, then load next word
     setTimeout(() => {
       setFeedbackAnimation({ isPlaying: false, text: "", color: "" });
     }, 600);
 
-    // Load next word after exit animation completes (skip loading skeleton)
     setTimeout(async () => {
       await loadNextWord(false);
     }, 800);
@@ -271,19 +281,30 @@ export function Review() {
             )}
           </AnimatePresence>
 
-          {/* Hint/Notes/Buttons - shown on front of card */}
           {currentWord && !isFlipped && (
             <AnimatePresence mode="wait">
-              {hint ? (
+              {hint !== null && hint.length > 0 ? (
                 <motion.div
                   key="hint"
-                  initial={{ opacity: 0, filter: "blur(4px)" }}
-                  animate={{ opacity: 1, filter: "blur(0px)" }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute bottom-3 left-3 right-3 text-center text-sm text-body pointer-events-none"
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute bottom-3 left-3 right-3 text-center pointer-events-none"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {hint}
+                  <div className="inline-flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100">
+                    <Lightbulb className="h-3.5 w-3.5 text-amber-500 flex-shrink-0 mt-0.5" weight="fill" />
+                    <span className="text-sm text-amber-900 text-left leading-relaxed">
+                      {hint}
+                      {isLoadingHint && (
+                        <motion.span
+                          className="inline-block w-[2px] h-[14px] bg-amber-400 ml-0.5 align-middle"
+                          animate={{ opacity: [1, 0] }}
+                          transition={{ duration: 0.5, repeat: Infinity, repeatType: "reverse" }}
+                        />
+                      )}
+                    </span>
+                  </div>
                 </motion.div>
               ) : hintError ? (
                 <motion.div
@@ -325,17 +346,8 @@ export function Review() {
                     disabled={isLoadingHint}
                     className="rounded-full shadow-none"
                   >
-                    {isLoadingHint ? (
-                      <>
-                        <CircleNotch className="h-4 w-4 animate-spin" />
-                        Thinking...
-                      </>
-                    ) : (
-                      <>
-                        <Lightbulb className="h-4 w-4" />
-                        Get a hint
-                      </>
-                    )}
+                    <Lightbulb className="h-4 w-4" />
+                    Get a hint
                   </Button>
                   {currentWord.notes && (
                     <Button
@@ -357,7 +369,6 @@ export function Review() {
           )}
         </CardContent>
 
-          {/* Open button in bottom right of card */}
           {isFlipped && (
             <div className="absolute bottom-3 right-3 z-10">
               <Button
@@ -392,10 +403,8 @@ export function Review() {
                   ease: [0.23, 1, 0.32, 1],
                 }}
               >
-                {/* Gradient edge */}
                 <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-r from-transparent to-black/10" />
 
-                {/* Text and icon */}
                 <motion.div
                   initial={{ scale: 0.8, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
@@ -423,7 +432,6 @@ export function Review() {
                     )}
                     <span className="text-2xl font-bold">{feedbackAnimation.text}</span>
                   </div>
-                  {/* Reserve space for next review text to prevent layout shift */}
                   <div className="mt-2 h-5">
                     <motion.div
                       initial={{ opacity: 0 }}
@@ -434,7 +442,7 @@ export function Review() {
                       }}
                       className="text-white/90 text-sm font-medium"
                     >
-                      {feedbackAnimation.nextReviewText || '\u00A0'}
+                      {feedbackAnimation.nextReviewText || ' '}
                     </motion.div>
                   </div>
                 </motion.div>
@@ -496,13 +504,12 @@ export function Review() {
         </motion.div>
       )}
 
-      {/* Example sentences */}
       {currentWord && isFlipped && sentences.length > 0 && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.15, delay: 0.1 }}
-          className="mt-6 p-4 bg-gray-50 rounded-xl"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.1 }}
+          className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100"
         >
           <p className="font-arabic text-lg mb-1">{sentences[0].arabic}</p>
           {sentences[0].transliteration && (
