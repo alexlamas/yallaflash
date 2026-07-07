@@ -7,6 +7,15 @@ const config: CapacitorConfig = {
   appId: "com.yallaflash.app",
   appName: "Yalla Flash",
   webDir: "out",
+  backgroundColor: "#ffffff",
+  plugins: {
+    SplashScreen: {
+      backgroundColor: "#ffffff",
+      launchShowDuration: 1200,
+      launchAutoHide: true,
+      showSpinner: false,
+    },
+  },
 };
 
 export default config;

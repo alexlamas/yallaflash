@@ -39,7 +39,10 @@ function CoachingContent() {
   }, []);
 
   return (
-    <div className="min-h-[100dvh] bg-gradient-to-b from-green-50/60 via-white to-white">
+    <div
+      className="min-h-[100dvh] bg-gradient-to-b from-green-50/60 via-white to-white"
+      style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       <header className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-4">
         <Link
           href="/chat"

@@ -43,11 +43,29 @@ To point the app at a preview deployment instead of production:
 NEXT_PUBLIC_API_BASE=https://your-preview.vercel.app npm run cap:sync
 ```
 
+## Native features
+
+- **Review reminders**: a local notification (no push infrastructure) is
+  scheduled for the next review due date, refreshed on every progress load
+  (`app/v2/lib/native.ts`, wired in ChatWindow's progress effect).
+- **Haptics**: success/error tap on each graded answer (both grading paths
+  in ChatWindow).
+- **Status bar + safe areas**: `NativeInit` (mounted in the root layout)
+  tags `<html>` and styles the status bar; the v2 shells pad
+  `env(safe-area-inset-*)` directly, which also fixes the standalone PWA on
+  notched iPhones.
+- **Icons + splash screens**: generated from `public/logo.svg` by
+  `node scripts/generate-native-assets.mjs` (re-run after a logo change).
+  `@capacitor/assets` is not used -- its pinned sharp doesn't install
+  everywhere.
+
 ## Notes
 
 - V2 access is admin-gated (`user_roles.role = 'admin'`); non-enabled
   accounts see a notice on /chat instead of the tutor.
 - Sign-in is email/password, which works in the webview as-is. Password
   reset emails still link to the website.
-- Push notifications (review reminders) are the natural next step:
-  `@capacitor/push-notifications` plus a Supabase edge function on a cron.
+- App Store listing copy and submission checklist: `docs/APP_STORE.md`.
+- If reminders should fire even when the app hasn't been opened in a while,
+  server push (`@capacitor/push-notifications` + a Supabase cron) is the
+  upgrade path; local notifications cover the common case.
