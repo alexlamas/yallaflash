@@ -409,6 +409,9 @@ export async function buildReviewWidget(
       prompt: `Type the ${DEFAULT_LANGUAGE.romanization} for "${word.english}" — no options, from memory.`,
       cue,
       answer,
+      // The meaning is already the visible cue on this tier, so an image of
+      // the concept can't leak anything.
+      image_url: await findImageForWord(ctx.supabase, word.english),
     };
   }
 

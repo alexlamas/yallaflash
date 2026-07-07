@@ -39,6 +39,14 @@ export function ProduceCold({
   const card = (
     <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm")}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
+        {widget.image_url && active && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={widget.image_url}
+            alt=""
+            className="h-24 w-24 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
+          />
+        )}
         <div className={active ? "text-3xl font-title" : "text-lg font-medium"}>
           {widget.cue.english}
         </div>

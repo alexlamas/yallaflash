@@ -4,8 +4,9 @@ import { cn } from "@/lib/utils";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Receipt for a tutor-initiated data change, styled as a miniature of the
-// /words table (same mono headers, same row language) with a jump link to
-// the full thing. Mutations are visible as data, not just claimed in prose.
+// /words table with a jump link to the full thing. Mutations are visible as
+// data, not just claimed in prose. Quiet sentence-case headers on purpose --
+// no mono/all-caps telemetry voice.
 
 const ACTION_META = {
   regraded: { label: "Regraded", Icon: Check },
@@ -41,16 +42,16 @@ export function DataChange({ widget }: { widget: Extract<Widget, { type: "data_c
       {widget.changes.length > 0 && (
         <table className="w-full text-[13px]">
           <thead>
-            <tr className="text-left font-mono text-[10px] uppercase tracking-wider text-subtle">
-              <th className="px-3.5 py-1.5 font-medium">Field</th>
-              <th className="px-2 py-1.5 font-medium">Before</th>
-              <th className="px-2 py-1.5 font-medium">After</th>
+            <tr className="text-left text-xs text-subtle">
+              <th className="px-3.5 py-1.5 font-normal">Field</th>
+              <th className="px-2 py-1.5 font-normal">Before</th>
+              <th className="px-2 py-1.5 font-normal">After</th>
             </tr>
           </thead>
           <tbody>
             {widget.changes.map((change, i) => (
               <tr key={i} className="border-t border-gray-50">
-                <td className="px-3.5 py-1.5 font-mono text-[11px] uppercase tracking-wide text-subtle">
+                <td className="px-3.5 py-1.5 text-xs text-subtle">
                   {change.field}
                 </td>
                 <td className="px-2 py-1.5 text-subtle">

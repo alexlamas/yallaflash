@@ -74,7 +74,59 @@ describe("gradeDeterministic", () => {
   it("decides cold production: exact yes, near-miss deferred, distant no", async () => {
     const { gradeDeterministic } = await import("../gradingCore");
     expect(gradeDeterministic("hard", "ktir", answer)).toBe(true);
-    expect(gradeDeterministic("hard", "kteer", answer)).toBe(null);
     expect(gradeDeterministic("hard", "shway", answer)).toBe(false);
+  });
+
+  it("accepts pure romanization spelling variance as correct", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    // Vowel doubling and e/i are spelling, not knowledge.
+    expect(gradeDeterministic("hard", "kteer", answer)).toBe(true);
+    // 2/q and o/u are the same sounds.
+    expect(
+      gradeDeterministic("hard", "bine2", { arabizi: "bne2", english: "I complain" })
+    ).toBe(null); // inserted vowel: near-miss band, model judges
+    expect(
+      gradeDeterministic("hard", "shu", { arabizi: "chou", english: "what" })
+    ).toBe(true);
+  });
+
+  it("defers near-misses measured on collapsed forms instead of failing them", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    // Raw distance 3 (instant wrong before); collapsed distance 1.
+    expect(
+      gradeDeterministic("hard", "fisto2", { arabizi: "fustuq", english: "peanuts" })
+    ).toBe(null);
+  });
+
+  it("sends shares-letters answers to the checking state, not an instant miss", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    // A related-looking answer waits on the model (visible "checking...")
+    // rather than flashing a wrong verdict the tutor then overturns.
+    expect(
+      gradeDeterministic("hard", "moukhayaym", { arabizi: "mukhayyam", english: "camping" })
+    ).toBe(null);
+    // Sharing letters cuts both ways: a DIFFERENT word at small edit distance
+    // also defers, and the model rejects it there.
+    expect(gradeDeterministic("hard", "kbir", answer)).toBe(null);
+    // Genuinely unrelated answers still fail instantly.
+    expect(
+      gradeDeterministic("hard", "dno", { arabizi: "aghlab", english: "majority" })
+    ).toBe(false);
+  });
+});
+
+describe("normalizeRomanization", () => {
+  it("collapses arabizi spelling equivalences", async () => {
+    const { normalizeRomanization } = await import("../gradingCore");
+    expect(normalizeRomanization("kteer")).toBe(normalizeRomanization("ktir"));
+    expect(normalizeRomanization("chou")).toBe(normalizeRomanization("shu"));
+    expect(normalizeRomanization("fustuq")).toBe(normalizeRomanization("fusto2"));
+    expect(normalizeRomanization("leyle")).toBe(normalizeRomanization("leile"));
+  });
+
+  it("keeps genuinely different sounds apart", async () => {
+    const { normalizeRomanization } = await import("../gradingCore");
+    expect(normalizeRomanization("7abibi")).not.toBe(normalizeRomanization("habibi"));
+    expect(normalizeRomanization("3am")).not.toBe(normalizeRomanization("am"));
   });
 });
