@@ -93,6 +93,48 @@ body {
   }
 }
 
+/* Native app (Capacitor) -- make the webview feel like a native surface.
+   NativeInit tags <html> with .native-app; none of this affects the website. */
+html.native-app,
+html.native-app body {
+  /* No rubber-banding of the page itself; inner scrollers keep their bounce. */
+  overscroll-behavior: none;
+}
+html.native-app body {
+  /* App chrome isn't selectable in a native app. Inputs and tutor messages
+     (Tailwind .select-text) opt back in. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.native-app * {
+  /* No gray tap flash, no long-press link/image sheet. */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+html.native-app input,
+html.native-app textarea,
+html.native-app [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+html.native-app input,
+html.native-app textarea,
+html.native-app select {
+  /* iOS zooms the page when a focused field is under 16px. */
+  font-size: 16px;
+}
+html.native-app button,
+html.native-app a,
+html.native-app input,
+html.native-app textarea,
+html.native-app [role="button"] {
+  /* Kills the double-tap-to-zoom wait on taps. */
+  touch-action: manipulation;
+}
+html.native-app img {
+  -webkit-user-drag: none;
+}
+
 @layer utilities {
   .preserve-3d {
     transform-style: preserve-3d;

@@ -35,7 +35,7 @@ import {
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
 import { apiFetch, apiJSON as fetchJSON } from "@/app/v2/lib/api";
-import { reviewHaptic, scheduleReviewReminder } from "@/app/v2/lib/native";
+import { reviewHaptic, scheduleReviewReminder, tapHaptic } from "@/app/v2/lib/native";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
@@ -1265,15 +1265,17 @@ export function ChatWindow() {
     );
   }
 
+  // Gradient lives on the outer shell so the safe-area padding strips
+  // (notch, home indicator) are tinted instead of flashing body-white.
   return (
     // reducedMotion="user" turns off every framer animation in the chat for
     // prefers-reduced-motion users -- per-component checks don't scale.
     <MotionConfig reducedMotion="user">
     <div
-      className="flex h-[100dvh]"
+      className="flex h-[100dvh] bg-gradient-to-b from-green-50/80 via-white to-white"
       style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
+      <div className="relative flex flex-col flex-1 min-w-0">
         {/* V2 owns its shell: the logo is the app menu (log out, old app). */}
         <div className="hidden lg:block absolute top-4 left-4 z-10">
           <AccountMenu triggerClassName="h-9 w-9" onNewSession={startNewSession} />
@@ -1466,7 +1468,10 @@ export function ChatWindow() {
               {chips.map((chip) => (
                 <button
                   key={chip.label}
-                  onClick={chip.onClick}
+                  onClick={() => {
+                    tapHaptic();
+                    chip.onClick();
+                  }}
                   className={cn(
                     "rounded-full px-4 py-2 text-sm font-medium border shadow-sm transition-[background-color,border-color,color,transform] active:scale-[0.96]",
                     chip.primary
@@ -1535,6 +1540,7 @@ export function ChatWindow() {
             <Textarea
               ref={textareaRef}
               rows={1}
+              enterKeyHint="send"
               aria-label="Message your tutor"
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -1554,7 +1560,10 @@ export function ChatWindow() {
               className="border-0 shadow-none focus-visible:ring-0 resize-none min-h-[30px] max-h-40 px-0 py-1.5 text-[15px] bg-transparent"
             />
             <button
-              onClick={handleSubmit}
+              onClick={() => {
+                tapHaptic();
+                handleSubmit();
+              }}
               disabled={loading || checking || (!input.trim() && !attachedImage)}
               aria-label="Send"
               className="h-9 w-9 shrink-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-[background-color,transform] active:scale-[0.96] hover:bg-green-700 disabled:opacity-35 disabled:hover:bg-green-600"
