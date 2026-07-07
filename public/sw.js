@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `arabic-flashcards-${CACHE_VERSION}`;
 const OFFLINE_PAGE = '/';
 
@@ -21,8 +21,6 @@ const CACHE_PATTERNS = {
 const SKIP_PATTERNS = [
   /\/api\//,
   /\/_next\/image/,
-  /chrome-extension:\/\//,
-  /^https:\/\/(?!localhost|127\.0\.0\.1)/,
 ];
 
 self.addEventListener('install', (event) => {
@@ -53,6 +51,12 @@ self.addEventListener('fetch', (event) => {
 
   // Skip non-GET requests
   if (request.method !== 'GET') return;
+
+  // Only handle same-origin requests (also excludes chrome-extension:// etc.)
+  if (url.origin !== self.location.origin) return;
+
+  // Skip caching during local development
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return;
 
   // Skip if matches skip patterns
   if (SKIP_PATTERNS.some(pattern => pattern.test(request.url))) return;
