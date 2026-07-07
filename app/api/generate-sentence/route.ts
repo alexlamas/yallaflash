@@ -95,7 +95,19 @@ export async function POST(req: Request) {
     const sentence = await ClaudeService.generateSentence(word, english, type, notes, existingData);
     await incrementUsage(user.id);
     return Response.json(sentence);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return Response.json(
+        { error: "Request timed out" },
+        { status: 408 }
+      );
+    }
+    if (error instanceof Error && error.message.includes("parse")) {
+      return Response.json(
+        { error: "Invalid response from AI service" },
+        { status: 500 }
+      );
+    }
     return Response.json(
       { error: "Failed to generate sentence" },
       { status: 500 }
