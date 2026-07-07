@@ -246,6 +246,8 @@ export function ChatWindow() {
   const sessionStats = useRef({ reviewed: 0, correct: 0 });
   const [progressKey, setProgressKey] = useState(0);
   const [progressData, setProgressData] = useState<ProgressData | null>(null);
+  // Controlled so panel actions can close the drawer before the chat replies.
+  const [progressOpen, setProgressOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   // Interactions are tracked here (not just inside widget components) so the
   // chips bar knows whether the newest interactive widget is still waiting.
@@ -1100,6 +1102,9 @@ export function ChatWindow() {
   }
 
   const reviewPending = pending !== null && isReviewWidget(pending.widget);
+  // Mid-session = a review card is waiting or we're parked on its verdict;
+  // the progress panel drops its call-to-action and holds still.
+  const inReviewSession = reviewPending || verdictShowing;
 
   // Session-start hero: a returning user's first screen is a real "ready to
   // review" moment, not a lone chat bubble floating in gradient. Waits for
@@ -1300,7 +1305,7 @@ export function ChatWindow() {
           <span className="text-xs font-mono text-subtle tabular-nums">{progressPercent}%</span>
           {/* Bottom drawer (drag-to-dismiss) rather than a side sheet --
               the native pattern for supplementary panels on phones. */}
-          <Drawer>
+          <Drawer open={progressOpen} onOpenChange={setProgressOpen}>
             <DrawerTrigger asChild>
               <button
                 onClick={() => tapHaptic()}
@@ -1316,7 +1321,14 @@ export function ChatWindow() {
             >
               <DrawerTitle className="sr-only">Progress</DrawerTitle>
               <div className="flex-1 min-h-0">
-                <ProgressPanel data={progressData} />
+                <ProgressPanel
+                  data={progressData}
+                  reviewing={inReviewSession}
+                  onPrompt={(text) => {
+                    setProgressOpen(false);
+                    void sendMessage(text);
+                  }}
+                />
               </div>
             </DrawerContent>
           </Drawer>
@@ -1585,7 +1597,11 @@ export function ChatWindow() {
       </div>
 
       <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-gray-50/60">
-        <ProgressPanel data={progressData} />
+        <ProgressPanel
+          data={progressData}
+          reviewing={inReviewSession}
+          onPrompt={(text) => void sendMessage(text)}
+        />
       </aside>
     </div>
     </MotionConfig>
