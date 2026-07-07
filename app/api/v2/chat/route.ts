@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createClient } from "@/utils/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getApiAuth } from "@/utils/supabase/api";
 import { incrementUsage } from "@/app/services/aiUsageService";
 import { errorMessage } from "@/app/api/utils";
 import { DEFAULT_TUTOR_INSTRUCTIONS, TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
@@ -30,8 +30,7 @@ type ChatRequest = {
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createClient(cookies());
-    const { data: { user } } = await supabase.auth.getUser();
+    const { supabase, user } = await getApiAuth(req);
     if (!user) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
@@ -208,7 +207,7 @@ export async function POST(req: Request) {
       finalText = `${finalText}\n\nThat ran longer than I can handle in one go -- try pasting fewer words at a time.`.trim();
     }
 
-    await incrementUsage(user.id);
+    await incrementUsage(user.id, supabase);
 
     // Hint-leak guard: while a served card is unanswered, a word_card for
     // that word (e.g. from get_word_detail during a hint) would reveal the
@@ -247,7 +246,7 @@ function findOpenCardWordId(rows: { role: string; content: string }[]): string |
 }
 
 async function createConversation(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
   userId: string
 ): Promise<string> {
   const { data, error } = await supabase
@@ -260,7 +259,7 @@ async function createConversation(
 }
 
 async function insertMessage(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
   conversationId: string,
   role: "user" | "assistant",
   content: string,

@@ -16,14 +16,24 @@ function HomeContent() {
   const { onboardingCompleted, isLoading: isProfileLoading } = useProfile();
   const { isAdmin, isLoading: isRolesLoading } = useUserRoles();
 
+  // The packaged native app is the V2 chat experience: any signed-in user
+  // lands on /chat (V2Gate shows a no-access notice there if the account
+  // isn't enabled, rather than bouncing back here).
+  const isNativeApp = process.env.NEXT_PUBLIC_APP_MODE === "native";
+  useEffect(() => {
+    if (!isNativeApp || isAuthLoading) return;
+    if (session) router.replace("/chat");
+  }, [isNativeApp, isAuthLoading, session, router]);
+
   // V2 chat onboarding is admin-gated while it bakes; everyone else keeps
   // the V1 wizard flow untouched.
   useEffect(() => {
+    if (isNativeApp) return;
     if (isAuthLoading || isProfileLoading || isRolesLoading) return;
     if (session && !onboardingCompleted) {
       router.replace(isAdmin ? "/chat" : "/onboarding");
     }
-  }, [isAuthLoading, isProfileLoading, isRolesLoading, isAdmin, session, onboardingCompleted, router]);
+  }, [isNativeApp, isAuthLoading, isProfileLoading, isRolesLoading, isAdmin, session, onboardingCompleted, router]);
 
   if (isAuthLoading || (session && isProfileLoading)) {
     return null;

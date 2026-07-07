@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
+import { apiFetch, apiJSON as fetchJSON } from "@/app/v2/lib/api";
+import { reviewHaptic, scheduleReviewReminder } from "@/app/v2/lib/native";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
 
@@ -63,24 +65,6 @@ let localIdCounter = 0;
 function nextLocalId() {
   localIdCounter += 1;
   return `local-${localIdCounter}`;
-}
-
-// Fetches JSON and throws with the API's own error message on a non-2xx
-// response, instead of letting callers hand a broken body to setState.
-async function fetchJSON<T>(url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: body === undefined ? "GET" : "POST",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const raw = data && (data as { error?: unknown }).error;
-    const message =
-      typeof raw === "string" ? raw : raw ? JSON.stringify(raw) : `Request to ${url} failed (${res.status})`;
-    throw new Error(message);
-  }
-  return data as T;
 }
 
 // Longest side Claude's vision handles well; bigger is wasted upload.
@@ -146,7 +130,7 @@ function AccountMenu({
   // Admin test tools: become a brand-new user (snapshot saved locally),
   // then restore the real data afterwards.
   async function testAsNewUser() {
-    const res = await fetch("/api/v2/dev/reset", { method: "POST" });
+    const res = await apiFetch("/api/v2/dev/reset", { method: "POST" });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.snapshot) {
       window.alert("Reset failed — nothing was changed.");
@@ -163,7 +147,7 @@ function AccountMenu({
       window.alert("No snapshot found in this browser.");
       return;
     }
-    const res = await fetch("/api/v2/dev/restore", {
+    const res = await apiFetch("/api/v2/dev/restore", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ snapshot: JSON.parse(raw) }),
@@ -299,10 +283,19 @@ export function ChatWindow() {
   // One shared progress fetch for the sidebar, mobile bar, sheet, and hero.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/v2/progress")
+    apiFetch("/api/v2/progress")
       .then((res) => (res.ok ? res.json() : null))
       .then((result: ProgressData | null) => {
-        if (!cancelled && result) setProgressData(result);
+        if (cancelled || !result) return;
+        setProgressData(result);
+        // Native app: keep one on-device reminder pointed at the next time
+        // words come due, replaced on every refresh (open, graded answer).
+        const now = Date.now();
+        const nextDue = result.words
+          .map((w) => w.next_review_date)
+          .filter((d) => new Date(d).getTime() > now)
+          .sort()[0];
+        scheduleReviewReminder(nextDue ?? null);
       })
       .catch(() => {});
     return () => {
@@ -760,6 +753,7 @@ export function ChatWindow() {
 
     if (instant !== null && review?.answer) {
       recordAnswered(key);
+      reviewHaptic(instant);
       const verdictId = appendLocalMessage("", [
         {
           type: "review_verdict",
@@ -808,6 +802,7 @@ export function ChatWindow() {
     try {
       const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, submitted, hinted });
       recordAnswered(key);
+      reviewHaptic(result.correct);
       refreshProgress();
       appendLocalMessage("", [
         {
@@ -1190,7 +1185,7 @@ export function ChatWindow() {
 
   if (error && messages.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-[100dvh] max-w-sm mx-auto text-center gap-3 px-4">
+      <div className="flex flex-col items-center justify-center h-[100dvh] max-w-sm mx-auto text-center gap-3 px-4" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="text-sm font-medium text-heading">Couldn&apos;t start the chat</div>
         <div className="text-sm text-subtle">{error}</div>
         <Button onClick={bootstrap} className="bg-green-600 hover:bg-green-700">
@@ -1274,7 +1269,10 @@ export function ChatWindow() {
     // reducedMotion="user" turns off every framer animation in the chat for
     // prefers-reduced-motion users -- per-component checks don't scale.
     <MotionConfig reducedMotion="user">
-    <div className="flex h-[100dvh]">
+    <div
+      className="flex h-[100dvh]"
+      style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       <div className="relative flex flex-col flex-1 min-w-0 bg-gradient-to-b from-green-50/80 via-white to-white">
         {/* V2 owns its shell: the logo is the app menu (log out, old app). */}
         <div className="hidden lg:block absolute top-4 left-4 z-10">

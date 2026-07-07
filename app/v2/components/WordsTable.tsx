@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { apiJSON as post } from "@/app/v2/lib/api";
 
 // Linear-grade database view over everything the user is learning:
 // keyboard-first (arrows, x, enter, /), hover-revealed row actions,
@@ -59,19 +60,6 @@ type EditableField = "arabizi" | "script" | "english" | "type" | "user_note";
 type SortKey = "arabizi" | "status" | "next_review_date";
 type Filter = "all" | "due" | "learning" | "learned" | "new";
 
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    const raw = data && (data as { error?: unknown }).error;
-    throw new Error(typeof raw === "string" ? raw : `Request failed (${res.status})`);
-  }
-  return data as T;
-}
 
 function dueLabel(iso: string): { label: string; due: boolean } {
   const ms = new Date(iso).getTime() - Date.now();
@@ -315,7 +303,7 @@ export function WordsTable() {
   ];
 
   return (
-    <div className="min-h-[100dvh] bg-white">
+    <div className="min-h-[100dvh] bg-white" style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}>
       <header className="sticky top-0 z-10 border-b bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
           <Link

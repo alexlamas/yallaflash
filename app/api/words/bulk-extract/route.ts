@@ -1,5 +1,4 @@
-import { createClient } from "@/utils/supabase/server";
-import { cookies } from "next/headers";
+import { getApiAuth } from "@/utils/supabase/api";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { TransliterationService } from "@/app/services/transliterationService";
@@ -61,13 +60,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const cookieStore = cookies();
-    const supabase = await createClient(cookieStore);
-
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { supabase, user } = await getApiAuth(req);
     if (!user) {
       return NextResponse.json(
         { error: "Authentication required" },
@@ -76,7 +69,7 @@ export async function POST(req: Request) {
     }
 
     // Check AI usage limits (need at least 2 remaining)
-    const usageCheck = await checkAIUsage(user.id);
+    const usageCheck = await checkAIUsage(user.id, supabase);
     if (!usageCheck.allowed) {
       return NextResponse.json(
         { error: usageCheck.reason, limitReached: true },
@@ -195,8 +188,8 @@ No additional text or explanations. Just the JSON array.`;
         .slice(0, 20);
 
       // Increment usage by 2 for bulk
-      await incrementUsage(user.id);
-      await incrementUsage(user.id);
+      await incrementUsage(user.id, supabase);
+      await incrementUsage(user.id, supabase);
 
       return NextResponse.json({ words: validWords });
     } catch {
