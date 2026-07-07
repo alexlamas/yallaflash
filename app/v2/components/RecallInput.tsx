@@ -57,6 +57,10 @@ export function RecallInput({
             placeholder="Type the English meaning..."
             aria-label={widget.prompt}
             autoFocus={active}
+            // Quiz answers: auto-capitalize would dress up every answer and
+            // enter should read as submitting one.
+            autoCapitalize="none"
+            enterKeyHint="send"
           />
           <Button
             disabled={done || !value.trim()}
