@@ -232,6 +232,9 @@ export function ChatWindow() {
   // Background tutor commentary in flight (post-verdict) -- shows the typing
   // indicator without blocking the chips, so Next word stays available.
   const [commentaryPending, setCommentaryPending] = useState(false);
+  // Local id of the assistant bubble currently receiving streamed text --
+  // the typing indicator yields to it once words are visibly arriving.
+  const [streamingId, setStreamingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The next card, fetched while the user reads the current verdict, so
   // Next word renders with zero wait.
@@ -566,9 +569,112 @@ export function ChatWindow() {
     return message?.widgets?.[index] ?? null;
   }
 
+  // Streams the tutor's reply into a local placeholder bubble as the model
+  // generates it, then swaps in the persisted message (real id + widgets)
+  // when the turn completes. Returns that final message.
+  async function streamChat(text: string): Promise<V2Message> {
+    const res = await apiFetch("/api/v2/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({ conversationId, message: text }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      const raw = data && (data as { error?: unknown }).error;
+      throw new Error(typeof raw === "string" ? raw : "That message didn't send.");
+    }
+    // A non-SSE response (older deploy, proxy stripped the header) still
+    // carries the standard JSON body -- fall through to it.
+    if (!res.headers.get("content-type")?.includes("text/event-stream") || !res.body) {
+      const data = (await res.json()) as { conversationId: string; message: V2Message };
+      setConversationId(data.conversationId);
+      return data.message;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let placeholderId: string | null = null;
+
+    const updatePlaceholder = (content: string) => {
+      if (!content) return;
+      if (!placeholderId) {
+        placeholderId = nextLocalId();
+        setStreamingId(placeholderId);
+        const id = placeholderId;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id,
+            conversation_id: conversationId ?? "",
+            role: "assistant",
+            content,
+            widgets: [],
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      } else {
+        const id = placeholderId;
+        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content } : m)));
+      }
+      // Growing text doesn't change message COUNT, so the length-keyed
+      // auto-scroll effect never fires -- keep the tail in view directly.
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    };
+
+    try {
+      let finalMessage: V2Message | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const event = JSON.parse(line.slice(6)) as {
+            type: string;
+            partial?: string;
+            conversationId?: string;
+            message?: V2Message;
+            error?: string;
+          };
+          if (event.type === "text" && typeof event.partial === "string") {
+            updatePlaceholder(event.partial);
+          } else if (event.type === "done" && event.message) {
+            finalMessage = event.message;
+            if (event.conversationId) setConversationId(event.conversationId);
+          } else if (event.type === "error") {
+            throw new Error(event.error || "That message didn't send.");
+          }
+        }
+      }
+      if (!finalMessage) throw new Error("The tutor's reply was cut off — try again.");
+      const message = finalMessage;
+      setMessages((prev) =>
+        placeholderId
+          ? prev.map((m) => (m.id === placeholderId ? message : m))
+          : [...prev, message]
+      );
+      return message;
+    } catch (err) {
+      // Take the half-streamed bubble back out -- the caller's error path
+      // also removes the optimistic user message.
+      if (placeholderId) {
+        const id = placeholderId;
+        setMessages((prev) => prev.filter((m) => m.id !== id));
+      }
+      throw err;
+    } finally {
+      setStreamingId(null);
+    }
+  }
+
   // background: true keeps the chips alive while the tutor works -- used for
   // hidden ground-truth messages ([REVIEW RESULT] etc.) whose commentary is
-  // a nicety, not something the user should wait on.
+  // a nicety, not something the user should wait on. Background sends stay on
+  // the JSON path: their reply may need to splice ABOVE an already-served
+  // card (race guard below), which is incompatible with streaming in place.
   async function sendMessage(text: string, { background = false } = {}): Promise<boolean> {
     if (!text.trim()) return false;
     if (background) setCommentaryPending(true);
@@ -588,6 +694,10 @@ export function ChatWindow() {
     ]);
 
     try {
+      if (!background) {
+        await streamChat(text);
+        return true;
+      }
       const data = await fetchJSON<{ conversationId: string; message: V2Message }>("/api/v2/chat", {
         conversationId,
         message: text,
@@ -598,18 +708,16 @@ export function ChatWindow() {
         // to a new card, this reply is about the PREVIOUS word -- slot it in
         // before the new card so it stays with its own exchange instead of
         // reading as a reply to the card on the table.
-        if (background) {
-          for (let i = prev.length - 1; i >= 0; i--) {
-            const widgets = prev[i].widgets ?? [];
-            const j = widgets.findIndex((w) => isReviewWidget(w));
-            if (j === -1) continue;
-            if (!answeredKeysRef.current.has(`${prev[i].id}:${j}`)) {
-              const copy = [...prev];
-              copy.splice(i, 0, data.message);
-              return copy;
-            }
-            break;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const widgets = prev[i].widgets ?? [];
+          const j = widgets.findIndex((w) => isReviewWidget(w));
+          if (j === -1) continue;
+          if (!answeredKeysRef.current.has(`${prev[i].id}:${j}`)) {
+            const copy = [...prev];
+            copy.splice(i, 0, data.message);
+            return copy;
           }
+          break;
         }
         return [...prev, data.message];
       });
@@ -1474,7 +1582,7 @@ export function ChatWindow() {
                 ))
               )}
             </AnimatePresence>
-            {(loading || checking || commentaryPending) && (
+            {(loading || checking || commentaryPending) && !streamingId && (
               <TypingIndicator label={checking ? "Checking your answer..." : undefined} />
             )}
           </div>
