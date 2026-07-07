@@ -105,15 +105,16 @@ export default function AdminImagesPage() {
       const remaining = missing.filter((m) => m.concept !== selected);
       setMissing(remaining);
       setBankSize((size) => (size === null ? size : size + 1));
-      setJustSaved(selected);
       setCandidates([]);
       // Move straight to the next word so curation flows without extra clicks.
+      // Set the saved banner after advancing: selectConcept clears it.
       const next = remaining[0]?.concept ?? null;
       if (next) {
         selectConcept(next);
       } else {
         setSelected(null);
       }
+      setJustSaved(selected);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Saving image failed");
     } finally {
