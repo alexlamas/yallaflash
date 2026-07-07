@@ -958,11 +958,6 @@ export function ChatWindow() {
       return;
     }
     setError(null);
-    // Advancing makes any in-flight commentary about the PREVIOUS word --
-    // hide its typing indicator now instead of letting it linger under the
-    // new card. The reply itself still lands (spliced above this card by
-    // sendMessage's race guard).
-    setCommentaryPending(false);
 
     const cached = prefetchRef.current;
     if (!ahead && cached && cached.word_id !== excludeWordId) {
@@ -1155,12 +1150,6 @@ export function ChatWindow() {
     // Verdict screen: the user decides when the turn ends. Digging in
     // (explain, example) keeps the tutor on THIS word; Enter advances.
     if (verdictShowing) {
-      // One-tap dispute on a miss: the tutor sees the submitted answer in
-      // [REVIEW RESULT] and regrades when the case is fair.
-      const verdict = (visibleMessages[verdictIndex!].widgets ?? []).find(
-        (w): w is Extract<Widget, { type: "review_verdict" }> => w.type === "review_verdict"
-      );
-      const disputable = verdict && !verdict.correct && !verdict.conceded;
       return [
         {
           label: "Next word",
@@ -1168,15 +1157,6 @@ export function ChatWindow() {
           primary: true,
           onClick: () => serveNext(lastReviewedRef.current ?? undefined),
         },
-        ...(disputable
-          ? [
-              {
-                label: "I was right",
-                onClick: () =>
-                  sendMessage("My answer was actually right — regrade it if that's fair."),
-              },
-            ]
-          : []),
         { label: "Explain more", onClick: () => sendMessage("Tell me more about this word") },
         { label: "Give an example", onClick: () => sendMessage("Use it in an example sentence") },
       ];
