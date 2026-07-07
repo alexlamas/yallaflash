@@ -1,0 +1,45 @@
+{
+  "scope": "component",
+  "isRedesign": true,
+  "targetPath": "app/v2/components/ProgressPanel.tsx",
+  "targetName": "ProgressPanel",
+  "relatedFiles": ["app/v2/components/CedarForest.tsx", "app/v2/components/ChatWindow.tsx"],
+  "painPoints": [
+    "Panel is a mirror, not a lever — zero actions, every stat is a dead end",
+    "Backlog state (126 due) renders a wall of identical red 0% rows — demoralizing, zero information",
+    "Stats speak SM-2 (mean ease, e^(-t/S)) instead of learner language",
+    "Forest is static decoration — nothing grows, wilts, or responds to taps",
+    "Blur-to-reveal english relies on hover, which does not exist on touch"
+  ],
+  "inspiration": {
+    "visual": ["existing V2 mono/telemetry aesthetic", "Duolingo (game layer)", "Forest app (living metaphor)"],
+    "functional": ["tap-to-act everywhere", "progressive disclosure", "recovery plan over raw backlog"]
+  },
+  "brand": {
+    "adjectives": ["warm", "Lebanese", "science-backed", "playful"],
+    "density": "explore both",
+    "darkMode": false
+  },
+  "persona": {
+    "primary": "End consumer (language learner, often lapsed)",
+    "context": "mobile-first (Capacitor native app, panel in a sheet/sidebar next to a chat tutor)",
+    "keyTasks": [
+      "Understand what to do right now and how long it takes",
+      "Start a review session (especially a small recovery bite under backlog)",
+      "Feel progress and stay motivated to return daily"
+    ]
+  },
+  "constraints": {
+    "mustKeep": ["counts (new/learning/learned)", "forest metaphor available as an option", "works at ~340px width"],
+    "technical": ["no new dependencies", "Tailwind + existing tokens", "actions modeled as prompts sent to the chat tutor"]
+  },
+  "framework": "nextjs-app",
+  "packageManager": "npm",
+  "stylingSystem": "tailwind",
+  "tokens": {
+    "text": ["text-heading", "text-body", "text-subtle", "text-disabled"],
+    "fonts": ["font-title (PP Hatton)", "font-mono (Geist Mono)"],
+    "radius": "0.5rem base via --radius",
+    "brandAccent": "red pomegranate, cedar greens"
+  }
+}
