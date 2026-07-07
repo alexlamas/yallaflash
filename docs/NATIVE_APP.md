@@ -12,7 +12,8 @@ production API on Vercel cross-origin.
   moves them aside during the build and restores them after. They keep
   running on Vercel untouched.
 - The build sets `NEXT_PUBLIC_APP_MODE=native` and `NEXT_PUBLIC_API_BASE`
-  (default `https://yallaflash.com`). In native mode:
+  (default `https://www.yallaflash.com` -- the canonical www host; the apex
+  redirects and CORS preflights can't follow redirects). In native mode:
   - `app/v2/lib/api.ts` prefixes API calls with the base URL and sends the
     Supabase access token as `Authorization: Bearer` (cookies don't flow
     cross-origin).
