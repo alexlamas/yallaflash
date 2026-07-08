@@ -1236,9 +1236,6 @@ export function ChatWindow() {
   }
 
   const reviewPending = pending !== null && isReviewWidget(pending.widget);
-  // Mid-session = a review card is waiting or we're parked on its verdict;
-  // the progress panel drops its call-to-action and holds still.
-  const inReviewSession = reviewPending || verdictShowing;
 
   // Session-start hero: a returning user's first screen is a real "ready to
   // review" moment, not a lone chat bubble floating in gradient. Waits for
@@ -1472,7 +1469,6 @@ export function ChatWindow() {
               <div className="flex-1 min-h-0">
                 <ProgressPanel
                   data={progressData}
-                  reviewing={inReviewSession}
                   onPrompt={(text) => {
                     setProgressOpen(false);
                     void sendMessage(text);
@@ -1748,11 +1744,7 @@ export function ChatWindow() {
       {/* No border or panel background: the progress column is quiet type
           sitting on the same gradient as the chat, not a second surface. */}
       <aside className="hidden lg:flex w-72 shrink-0 flex-col">
-        <ProgressPanel
-          data={progressData}
-          reviewing={inReviewSession}
-          onPrompt={(text) => void sendMessage(text)}
-        />
+        <ProgressPanel data={progressData} onPrompt={(text) => void sendMessage(text)} />
       </aside>
     </div>
     </MotionConfig>

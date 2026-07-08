@@ -36,8 +36,9 @@ in a temporary design lab). Guidance for future design work on Yalla Flash.
 
 ## Panel structure
 
-Next action (one primary CTA sized in minutes) → slipping words → stats row.
-Every element is a door into the chat tutor.
+Slipping words → stats row (due / today / learned). Every word is a door
+into the chat tutor, but the panel itself is passive: actions live in the
+chat (session hero + chips bar), never duplicated in the sidebar.
 
 ## In-situ revision (July 2026): the sidebar must whisper
 
@@ -55,7 +56,13 @@ with the page's green gradient. Rules learned:
   the least useful information and were most of the ink. Show due + fading
   words (capped ~8, still tap-to-quiz); when nothing is slipping, one line:
   "All N holding strong." The strongest state of the panel is the emptiest.
-- Stats are a bare row pinned to the bottom — no box, no dividers.
+- **No actions in the sidebar.** The session hero and the chips bar already
+  own every action; a panel CTA meant two buttons for the same thing on
+  screen at once. The panel informs, the chat acts.
+- Stats are a bare row pinned to the bottom — no box, no dividers. Each
+  stat carries one time horizon: due (now), reviewed (today), learned
+  (ever). Retention was cut: a model estimate, not an answer to any
+  question the learner has.
 
 ## Known gaps / next opportunities
 
