@@ -157,8 +157,18 @@ export async function POST(req: Request) {
       let lastStopReason: string | null = null;
 
       for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-        const stream = anthropic.messages.stream({
+        // Sonnet 5 runs adaptive thinking when `thinking` is omitted, and by
+        // default its thinking blocks carry empty text. SDK 0.32.x predates
+        // thinking, so the stream accumulator reassembles those blocks badly,
+        // and echoing them back through the tool loop 400s with "each
+        // thinking block must contain thinking". The tutor doesn't need
+        // thinking (the deterministic layer owns correctness), so disable it.
+        // Passed via a variable so the extra `thinking` field (unknown to the
+        // 0.32.x types) skips excess-property checking, same reason as the
+        // cache_control cast above.
+        const request = {
           model: MODEL,
+          thinking: { type: "disabled" as const },
           // Must fit a propose_words call for a long pasted list -- at 1024 the
           // tool_use block gets truncated and silently dropped, so the reply
           // text lands without its widget.
@@ -166,7 +176,8 @@ export async function POST(req: Request) {
           system,
           tools,
           messages,
-        });
+        };
+        const stream = anthropic.messages.stream(request);
 
         if (onText) {
           let accumulated = "";
