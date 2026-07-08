@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
+import { climbPercent } from "@/app/v2/lib/levels";
 import { HIDDEN_PREFIXES, liftStaleCommentary } from "@/app/v2/lib/history";
 import { CARD_FLAVORS, FLAVOR_WASHES, type CardFlavor } from "@/app/v2/lib/cardFlavors";
 import { apiFetch, apiJSON as fetchJSON } from "@/app/v2/lib/api";
@@ -348,15 +349,9 @@ export function ChatWindow() {
     };
   }, [progressKey]);
 
-  const progressTotals = progressData
-    ? progressData.counts.new + progressData.counts.learning + progressData.counts.learned
-    : 0;
-  const progressPercent =
-    !progressData || progressTotals === 0
-      ? 0
-      : Math.round(
-          ((progressData.counts.learned + 0.5 * progressData.counts.learning) / progressTotals) * 100
-        );
+  // Same metric as the panel's big number (climbPercent) -- the app must
+  // never show two different "percents" for the same collection.
+  const progressPercent = progressData ? climbPercent(progressData.words) : 0;
   const dueNow = progressData?.counts.dueNow ?? 0;
 
   const visibleMessages = useMemo(
@@ -788,7 +783,15 @@ export function ChatWindow() {
       const message = finalMessage;
       setMessages((prev) =>
         placeholderId
-          ? prev.map((m) => (m.id === placeholderId ? message : m))
+          ? prev.map((m) => {
+              if (m.id !== placeholderId) return m;
+              // Keep the placeholder's id for text-only replies: swapping to
+              // the persisted id remounts the bubble (AnimatePresence keys by
+              // id), so the streamed text visibly exited and re-entered right
+              // as it finished. Widget-carrying replies swap fully -- answer
+              // tracking keys off the real message id.
+              return (message.widgets ?? []).length > 0 ? message : { ...message, id: placeholderId as string };
+            })
           : [...prev, message]
       );
       return message;
@@ -1029,6 +1032,10 @@ export function ChatWindow() {
           arabizi: review.answer.arabizi,
           english: review.answer.english,
           script: review.cue?.script ?? null,
+          // Production cards already carry a leak-safe concept image --
+          // rendered NOW, never patched in later (a block appearing after
+          // the fact jolts the whole card taller).
+          image_url: "image_url" in review ? review.image_url ?? null : null,
           next_review_date: "",
         },
       ]);
@@ -1050,11 +1057,13 @@ export function ChatWindow() {
           return true;
         }
         refreshProgress();
+        // Patch ONLY what swaps text in place (the schedule, a flipped
+        // grade). Script and image stay whatever rendered initially: adding
+        // a new block a beat later is exactly the height-jump jank the
+        // verdict card kept producing.
         patchVerdict(verdictId, {
           correct: result.correct,
-          script: result.script,
           next_review_date: result.next_review_date,
-          image_url: result.image_url,
         });
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct}${hinted ? " hinted=true (counts as struggled -- shorter interval)" : ""} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
@@ -1334,6 +1343,12 @@ export function ChatWindow() {
     // A concede wipes any hint taken -- otherwise the flag would silently
     // penalize this word's NEXT (unhinted) correct answer in-session.
     hintedRef.current.delete(widget.word_id);
+    // Set BEFORE the answer round trip: the chips stay live during a
+    // concede, and an immediate "Next word" must exclude THIS word -- with
+    // the ref still on the previous word, the serve raced the SRS write and
+    // dealt the just-conceded card straight back.
+    lastReviewedRef.current = widget.word_id;
+    prefetchNext(widget.word_id);
     setError(null);
 
     let verdictId: string | null = null;
@@ -1346,6 +1361,8 @@ export function ChatWindow() {
           arabizi: widget.answer.arabizi,
           english: widget.answer.english,
           script: widget.cue?.script ?? null,
+          // Rendered now or never -- see the deterministic path.
+          image_url: "image_url" in widget ? widget.image_url ?? null : null,
           next_review_date: "",
         },
       ]);
@@ -1370,10 +1387,9 @@ export function ChatWindow() {
       }
       refreshProgress();
       if (verdictId) {
+        // Text-in-place only -- late script/image blocks jolt the card.
         patchVerdict(verdictId, {
-          script: result.script,
           next_review_date: result.next_review_date,
-          image_url: result.image_url,
         });
       } else {
         appendLocalMessage("", [
@@ -1795,9 +1811,11 @@ export function ChatWindow() {
                 </motion.div>
               ) : (
                 activeMessages.map((message, i) => (
+                  // No layout prop here on purpose: layout springs re-animate
+                  // every sibling whenever a streaming bubble grows a line,
+                  // which is exactly the swimming the stage kept doing.
                   <motion.div
                     key={message.id}
-                    layout
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -16, transition: { duration: 0.18, ease: "easeOut" } }}
