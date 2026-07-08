@@ -19,7 +19,7 @@ type NextCardRequest = {
   conversationId: string;
   excludeWordId?: string;
   peek?: boolean;
-  commitWidget?: Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>;
+  commitWidget?: Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" | "word_builder" }>;
   // Boost-style early review: when nothing is due, serve the word whose
   // review is soonest anyway. Extra reps never hurt; scheduling still
   // belongs to the SRS write on answer.
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
 
     const served = buildServedLine(
       word,
-      widget as Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>
+      widget as Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" | "word_builder" }>
     );
     const { error: servedError } = await supabase
       .from("v2_messages")

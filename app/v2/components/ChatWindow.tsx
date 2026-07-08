@@ -50,15 +50,21 @@ const INTERACTIVE_TYPES = new Set<Widget["type"]>([
   "quiz_mc",
   "recall_input",
   "produce_cold",
+  "word_builder",
   "add_words_preview",
   "pack_list",
   "word_picker",
 ]);
 
-type ReviewWidget = Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>;
+type ReviewWidget = Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" | "word_builder" }>;
 
 function isReviewWidget(widget: Widget): widget is ReviewWidget {
-  return widget.type === "quiz_mc" || widget.type === "recall_input" || widget.type === "produce_cold";
+  return (
+    widget.type === "quiz_mc" ||
+    widget.type === "recall_input" ||
+    widget.type === "produce_cold" ||
+    widget.type === "word_builder"
+  );
 }
 
 let localIdCounter = 0;
@@ -857,9 +863,15 @@ export function ChatWindow() {
     setError(null);
     const widget = widgetForKey(key);
     const review = widget && isReviewWidget(widget) ? widget : null;
-    // Reversed multiple choice grades against the word itself -- the widget
-    // knows its own direction; older widgets default to to-English.
-    const direction = review?.type === "quiz_mc" ? review.direction : undefined;
+    // Reversed multiple choice and the tile builder grade against the word
+    // itself -- the widget knows its own direction; older widgets default
+    // to to-English.
+    const direction =
+      review?.type === "quiz_mc"
+        ? review.direction
+        : review?.type === "word_builder"
+        ? ("to_target" as const)
+        : undefined;
     const instant = review?.answer ? gradeDeterministic(tier, submitted, review.answer, direction) : null;
     const hinted = hintedRef.current.has(wordId);
     hintedRef.current.delete(wordId);
@@ -1183,7 +1195,12 @@ export function ChatWindow() {
       const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", {
         wordId: widget.word_id,
         tier: widget.tier,
-        direction: widget.type === "quiz_mc" ? widget.direction : undefined,
+        direction:
+          widget.type === "quiz_mc"
+            ? widget.direction
+            : widget.type === "word_builder"
+            ? "to_target"
+            : undefined,
         concede: true,
       });
       refreshProgress();

@@ -33,6 +33,8 @@ export interface FlavorStyles {
   input: string;
   /** Submit button */
   button: string;
+  /** Dashed frame around the word-builder's build row */
+  frame: string;
 }
 
 export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
@@ -47,6 +49,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     kbd: "border-gray-200 bg-gray-50 text-disabled",
     input: "",
     button: "bg-green-600 hover:bg-green-700",
+    frame: "border-gray-300/80",
   },
   mint: {
     card: "bg-gradient-to-br from-emerald-50 via-white to-teal-50/70 border-emerald-200",
@@ -59,6 +62,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     kbd: "border-emerald-100 bg-white text-disabled",
     input: "",
     button: "bg-emerald-600 hover:bg-emerald-700",
+    frame: "border-emerald-300/80",
   },
   sand: {
     card: "bg-gradient-to-br from-amber-50 via-white to-orange-50/70 border-amber-200",
@@ -71,6 +75,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     kbd: "border-amber-100 bg-white text-disabled",
     input: "",
     button: "bg-amber-600 hover:bg-amber-700",
+    frame: "border-amber-300/80",
   },
   sky: {
     card: "bg-gradient-to-br from-sky-50 via-white to-indigo-50/70 border-sky-200",
@@ -83,6 +88,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     kbd: "border-sky-100 bg-white text-disabled",
     input: "",
     button: "bg-sky-600 hover:bg-sky-700",
+    frame: "border-sky-300/80",
   },
   rose: {
     card: "bg-gradient-to-br from-rose-50 via-white to-pink-50/70 border-rose-200",
@@ -95,6 +101,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     kbd: "border-rose-100 bg-white text-disabled",
     input: "",
     button: "bg-rose-600 hover:bg-rose-700",
+    frame: "border-rose-300/80",
   },
   night: {
     card: "bg-gray-900 border-gray-800 text-gray-100 shadow-xl",
@@ -107,6 +114,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     kbd: "border-gray-600 bg-gray-800 text-gray-500",
     input: "border-gray-700 bg-gray-800/60 text-gray-100 placeholder:text-gray-500",
     button: "bg-emerald-500 hover:bg-emerald-400 text-gray-950",
+    frame: "border-gray-600",
   },
 };
 

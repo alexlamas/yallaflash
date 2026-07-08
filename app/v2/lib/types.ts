@@ -144,6 +144,24 @@ export type Widget =
       context?: ReviewContext;
       answer?: ReviewAnswer;
     }
+  // Scaffolded production for words that aren't solid yet: assemble the
+  // word from its own scrambled tiles (letters, or words for a phrase).
+  // Grades like a reversed card -- the assembled string against the word.
+  | {
+      type: "word_builder";
+      word_id: string;
+      tier: ReviewTier;
+      prompt: string;
+      cue: ReviewCue;
+      tiles: string[];
+      // What picked tiles are joined with: "" letter mode, " " phrase mode.
+      separator: "" | " ";
+      flavor?: string;
+      answer?: ReviewAnswer;
+      // English is the visible cue here (like produce_cold), so a concept
+      // image can't leak anything.
+      image_url?: string | null;
+    }
   | {
       type: "produce_cold";
       word_id: string;
