@@ -49,3 +49,13 @@ export function tierForLevel(level: WordLevel): ReviewTier {
   if (level === 3) return "medium";
   return "hard";
 }
+
+// One number for the whole collection: how far up the ladder it sits on
+// average. 0% = everything brand new, 100% = every word at the summit.
+// Shared by the progress panel and the mobile bar so the app never shows
+// two different "percents".
+export function climbPercent(words: LevelProgress[]): number {
+  if (words.length === 0) return 0;
+  const sum = words.reduce((acc, word) => acc + levelForProgress(word), 0);
+  return Math.round((sum / (words.length * MAX_WORD_LEVEL)) * 100);
+}

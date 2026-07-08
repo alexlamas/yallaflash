@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { splitCueAside } from "@/app/v2/lib/leakGuard";
 import { ContextSentence } from "./ReviewContext";
+import { IDontKnow } from "./IDontKnow";
 import type { Widget } from "@/app/v2/lib/types";
 
 type QuizMCWidget = Extract<Widget, { type: "quiz_mc" }>;
@@ -14,11 +16,13 @@ type QuizMCWidget = Extract<Widget, { type: "quiz_mc" }>;
 export function QuizMC({
   widget,
   onAnswer,
+  onConcede,
   active = false,
   answered = false,
 }: {
   widget: QuizMCWidget;
   onAnswer: (wordId: string, tier: QuizMCWidget["tier"], submitted: string) => Promise<boolean>;
+  onConcede?: () => void;
   active?: boolean;
   // Durable answered state from the conversation -- local state resets on
   // remount, which once brought an old card back to life.
@@ -58,13 +62,41 @@ export function QuizMC({
     <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm", styles.card)}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
         {widget.cue.script && (
-          <div className={active ? "text-4xl" : "text-2xl"} dir={DEFAULT_LANGUAGE.scriptDir}>
+          <div
+            className={active ? (widget.cue.script.length > 16 ? "text-2xl" : "text-4xl") : "text-2xl"}
+            dir={DEFAULT_LANGUAGE.scriptDir}
+          >
             {widget.cue.script}
           </div>
         )}
-        <div className={cn(active ? "text-3xl font-title" : "text-lg font-medium", styles.cue)}>
-          {cueWord}
-        </div>
+        {/* Reversed cards cue with english, where grammar asides drop to a
+            small line; sentence-length cues step the display font down so
+            they read as a sentence, not a shout. Arabizi cues render as
+            stored -- their parentheses are gender/plural variants, part of
+            the word itself. */}
+        {(() => {
+          const isEnglishCue = !widget.cue.arabizi;
+          const { main, aside } = isEnglishCue
+            ? splitCueAside(cueWord ?? "")
+            : { main: cueWord ?? "", aside: null };
+          return (
+            <>
+              <div
+                className={cn(
+                  active
+                    ? main.length > 28
+                      ? "text-xl font-title"
+                      : "text-3xl font-title"
+                    : "text-lg font-medium",
+                  styles.cue
+                )}
+              >
+                {main}
+              </div>
+              {aside && <div className={cn("text-xs italic", styles.muted)}>{aside}</div>}
+            </>
+          );
+        })()}
         {widget.context && (
           <ContextSentence
             text={widget.context.target}
@@ -104,6 +136,7 @@ export function QuizMC({
             </Button>
           ))}
         </div>
+        {active && !done && <IDontKnow onConcede={onConcede} className={styles.muted} />}
       </CardContent>
     </Card>
   );

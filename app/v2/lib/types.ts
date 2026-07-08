@@ -236,4 +236,9 @@ export type Widget =
       // nothing was scheduled -- the word will simply come up again.
       save_failed?: boolean;
     }
-  | { type: "session_summary"; reviewed: number; correct: number };
+  | { type: "session_summary"; reviewed: number; correct: number }
+  // Tutor-suggested quick replies, rendered as chips above the chat input
+  // (not inline in the transcript). `send` is the message a tap sends; the
+  // literal "next" is intercepted client-side and serves the next card
+  // directly. Only the newest assistant message's chips are live.
+  | { type: "suggested_chips"; chips: { label: string; send: string }[] };

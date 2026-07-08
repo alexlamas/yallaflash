@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
-import { buildReviewWidget, buildServedLine, getDefaultLanguageId, levelForProgress } from "@/app/v2/lib/tools";
+import { buildReviewWidget, buildServedLine, getDefaultLanguageId, isSlipping, levelForProgress } from "@/app/v2/lib/tools";
+import { maybeContextSentence } from "@/app/v2/lib/sentenceGen";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Serves the next due card deterministically -- one DB round trip, no model
@@ -14,6 +15,10 @@ import type { Widget } from "@/app/v2/lib/types";
 //                  rendered it instantly, the conversation record catches up
 // When nothing is due, returns { done: true } and the client owns the
 // session-cleared moment (summary card built from its own tally).
+
+// Sentence generation adds a bounded model call on top of the DB round
+// trips; Vercel's default 10s leaves no headroom for a slow cold start.
+export const maxDuration = 15;
 
 type NextCardRequest = {
   conversationId: string;
@@ -66,10 +71,12 @@ export async function POST(req: Request) {
 
     let dueQuery = supabase
       .from("v2_word_progress")
-      .select("status, review_count, interval, v2_words!inner(*)")
+      .select("status, review_count, interval, next_review_date, v2_words!inner(*)")
       .eq("user_id", user.id)
       .order("next_review_date", { ascending: true })
-      .limit(excludeWordId ? 2 : 1);
+      // Two spare candidates: one in case the client excluded a word, one in
+      // case the top word is the one served last (deprioritized below).
+      .limit(3);
     // Normal serves respect the schedule; "review ahead" takes the soonest
     // word regardless.
     if (!ahead) {
@@ -86,9 +93,9 @@ export async function POST(req: Request) {
       english: string;
       memory_hook: string | null;
     };
-    const row = (rows ?? []).find((r) => (r.v2_words as unknown as WordRow).id !== excludeWordId);
+    const candidates = (rows ?? []).filter((r) => (r.v2_words as unknown as WordRow).id !== excludeWordId);
 
-    if (!row) {
+    if (candidates.length === 0) {
       // "Done" can mean two things: genuinely nothing due, or only the
       // just-skipped word remains (it's still due -- we merely excluded it).
       // The client copy must not claim a cleared queue in the second case.
@@ -98,6 +105,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ done: true, excludedStillDue });
     }
 
+    // A conceded/missed word relearns on a minutes-scale step, so it can be
+    // the most-overdue word again while its verdict is still on screen.
+    // Seeing it again soon is the point; seeing it back-to-back and UNMARKED
+    // is what feels broken. Whenever anything else is due, the word served
+    // last waits one turn; when it truly is the only one due, it repeats
+    // with a lead-in that says so.
+    const lastServedId = peek
+      ? null
+      : await (async () => {
+          const { data: lastServed } = await supabase
+            .from("v2_messages")
+            .select("content")
+            .eq("conversation_id", conversationId)
+            .like("content", "[SERVED]%")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          return lastServed?.content.match(/word_id=(\S+)/)?.[1] ?? null;
+        })();
+    const row =
+      candidates.find((r) => (r.v2_words as unknown as WordRow).id !== lastServedId) ?? candidates[0];
+    const repeatedWord = (row.v2_words as unknown as WordRow).id === lastServedId;
+
     const word = row.v2_words as unknown as WordRow;
     const languageId = await getDefaultLanguageId(supabase);
     const ctx = { supabase, userId: user.id, languageId };
@@ -106,7 +136,18 @@ export async function POST(req: Request) {
       review_count: row.review_count,
       interval: row.interval,
     });
-    const widget = await buildReviewWidget(ctx, word, level);
+    // Best-effort natural framing: some cards get the word wrapped in a
+    // short generated sentence (untranslated context on recognition,
+    // fill-in-the-blank on production), like a teacher testing it in use.
+    // Bounded by a tight timeout; the prefetch path hides it entirely.
+    const sentence = await maybeContextSentence(word, level);
+    const widget = await buildReviewWidget(
+      ctx,
+      word,
+      level,
+      sentence ?? undefined,
+      isSlipping((row as { next_review_date?: string }).next_review_date)
+    );
 
     if (peek) {
       return NextResponse.json({ widget });
@@ -123,7 +164,14 @@ export async function POST(req: Request) {
 
     const { data: message, error: msgError } = await supabase
       .from("v2_messages")
-      .insert({ conversation_id: conversationId, role: "assistant", content: "", widgets: [widget] })
+      .insert({
+        conversation_id: conversationId,
+        role: "assistant",
+        // An immediate repeat is deliberate (short relearn step) -- say so,
+        // or back-to-back cards read as a bug.
+        content: repeatedWord ? "Same one again — it comes back quickly until it sticks:" : "",
+        widgets: [widget],
+      })
       .select("*")
       .single();
     if (msgError) throw msgError;

@@ -7,6 +7,7 @@ import { errorMessage } from "@/app/api/utils";
 import { DEFAULT_TUTOR_INSTRUCTIONS, TUTOR_SYSTEM_PROMPT } from "@/app/v2/lib/tutorPrompt";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import { TOOL_DEFINITIONS, executeTool, getDefaultLanguageId } from "@/app/v2/lib/tools";
+import { findOpenCard, scrubOpenCardAnswer, streamSafeText } from "@/app/v2/lib/openCard";
 import type { Widget } from "@/app/v2/lib/types";
 
 // The tool loop makes up to MAX_TOOL_ITERATIONS sequential Claude calls;
@@ -148,6 +149,12 @@ export async function POST(req: Request) {
 
     const messages: Anthropic.MessageParam[] = [];
     for (const row of relevantRows) {
+      // Widget-only rows (served cards, pickers) persist with empty content;
+      // as API text blocks they 400 ("must contain non-whitespace text").
+      // They carry nothing for the model anyway -- the [SERVED] rows hold
+      // the ground truth -- so drop them; the merge below closes any
+      // same-role gap they leave behind.
+      if (!row.content.trim()) continue;
       const last = messages[messages.length - 1];
       if (last && last.role === row.role && typeof last.content === "string") {
         last.content = `${last.content}\n${row.content}`;
@@ -155,6 +162,9 @@ export async function POST(req: Request) {
         messages.push({ role: row.role as "user" | "assistant", content: row.content });
       }
     }
+    // Dropping empty rows can leave the window starting with an assistant
+    // turn -- the API requires user-first.
+    while (messages.length > 0 && messages[0].role !== "user") messages.shift();
 
     // Hint-leak guard state is needed BEFORE the loop when streaming: raw
     // deltas must be scrubbed as they're emitted, not just in the stored row.
@@ -318,65 +328,6 @@ export async function POST(req: Request) {
     console.error("[v2/chat]", error);
     return NextResponse.json({ error: `Chat failed: ${errorMessage(error)}` }, { status: 500 });
   }
-}
-
-// Streaming-safe view of in-flight text: scrub completed mentions of the open
-// card's hidden side, and hold back any trailing PARTIAL match so the answer
-// can't flash on screen for a frame before the scrub catches it. Because
-// events are full-replace snapshots, held-back text is emitted (or scrubbed)
-// by a later snapshot -- nothing is lost.
-function streamSafeText(text: string, card: OpenCard | null): string {
-  if (!card || !card.hidden.trim()) return text;
-  const lower = text.toLowerCase();
-  const hidden = card.hidden.toLowerCase();
-  let cut = text.length;
-  for (let k = Math.min(hidden.length - 1, lower.length); k > 0; k--) {
-    if (lower.endsWith(hidden.slice(0, k))) {
-      cut = text.length - k;
-      break;
-    }
-  }
-  return scrubOpenCardAnswer(text.slice(0, cut), card);
-}
-
-// The word on the table: the most recent [SERVED] card with no later
-// [REVIEW RESULT] for the same word. Also parses which side the card shows
-// and which it hides, so the reply text can be scrubbed of the answer.
-type OpenCard = { wordId: string; shown: string; hidden: string };
-
-function findOpenCard(rows: { role: string; content: string }[]): OpenCard | null {
-  const answered = new Set<string>();
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const content = rows[i].content;
-    if (content.startsWith("[REVIEW RESULT]")) {
-      const match = content.match(/word_id=(\S+)/);
-      if (match) answered.add(match[1]);
-    } else if (content.startsWith("[SERVED]")) {
-      const match = content.match(/word_id=(\S+) arabizi="([^"]*)" english="([^"]*)" tier=(\S+)/);
-      if (!match) return null;
-      const [, wordId, arabizi, english, tier] = match;
-      if (answered.has(wordId)) return null;
-      // The asks= token says which side the card hides (formats vary within
-      // a tier now -- reversed multiple choice hides the word on the easy
-      // tier). Older persisted lines lack it; fall back to the tier rule.
-      const asksMatch = content.match(/asks=(arabizi|english)/);
-      const hidesWord = asksMatch ? asksMatch[1] === "arabizi" : tier === "hard";
-      return hidesWord
-        ? { wordId, shown: english, hidden: arabizi }
-        : { wordId, shown: arabizi, hidden: english };
-    }
-  }
-  return null;
-}
-
-// Replace any mention of the open card's hidden side with its shown side, so
-// "the 'l leyle' card is still waiting" becomes "the 'tonight' card is still
-// waiting". Consumes wrapping quotes to avoid doubling them.
-function scrubOpenCardAnswer(text: string, card: OpenCard): string {
-  if (!card.hidden.trim()) return text;
-  const escaped = card.hidden.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`["'‘’“”]?\\b${escaped}\\b["'‘’“”]?`, "gi");
-  return text.replace(pattern, `"${card.shown}"`);
 }
 
 async function createConversation(

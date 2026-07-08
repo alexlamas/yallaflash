@@ -1,15 +1,26 @@
-// Visual variety for review cards: each card is dealt a flavor when it's
-// built server-side, and the flavor rides in the widget so a card keeps its
-// look across reloads. Purely presentational -- grading, tiers, and the SRS
-// never read it. "classic" reproduces the original card styling exactly, so
-// widgets persisted before flavors existed render unchanged.
+// Review-card color, dealt server-side at build time; the flavor rides in
+// the widget so a card keeps its look across reloads. Flavors started as
+// random variety and now MEAN something -- see flavorForWord -- but they
+// stay purely presentational: grading, tiers, and the SRS never read one.
+// "classic" reproduces the original card styling exactly, so widgets
+// persisted before flavors existed render unchanged.
 
 export type CardFlavor = "classic" | "mint" | "sand" | "sky" | "rose" | "night";
 
 export const CARD_FLAVORS: CardFlavor[] = ["classic", "mint", "sand", "sky", "rose", "night"];
 
-export function randomFlavor(): CardFlavor {
-  return CARD_FLAVORS[Math.floor(Math.random() * CARD_FLAVORS.length)];
+// Color as state, not decoration: the card (and the page wash behind it)
+// says at a glance how this word is doing. Warm rose = it's slipping and
+// needs the rescue; cool sky = brand new, no judgment yet; mint -> sand ->
+// classic green track the climb; night = the summit look for established
+// words. Good/bad verdict color (green/red) stays the verdict card's job.
+export function flavorForWord(level: number, slipping: boolean): CardFlavor {
+  if (slipping) return "rose";
+  if (level <= 0) return "sky";
+  if (level <= 2) return "mint";
+  if (level === 3) return "sand";
+  if (level === 4) return "classic";
+  return "night";
 }
 
 export interface FlavorStyles {
@@ -47,7 +58,9 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     option: "hover:border-green-400 hover:bg-green-50/50",
     optionSelected: "border-gray-400 bg-gray-50",
     kbd: "border-gray-200 bg-gray-50 text-disabled",
-    input: "",
+    // Soft accent focus -- the shadcn default ring is near-black and reads
+    // as a harsh border on a pastel card. Same treatment on every flavor.
+    input: "focus-visible:border-green-400 focus-visible:ring-2 focus-visible:ring-green-500/20",
     button: "bg-green-600 hover:bg-green-700",
     frame: "border-gray-300/80",
   },
@@ -60,7 +73,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     option: "hover:border-emerald-400 hover:bg-emerald-50/60",
     optionSelected: "border-gray-400 bg-gray-50",
     kbd: "border-emerald-100 bg-white text-disabled",
-    input: "",
+    input: "focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/20",
     button: "bg-emerald-600 hover:bg-emerald-700",
     frame: "border-emerald-300/80",
   },
@@ -73,7 +86,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     option: "hover:border-amber-400 hover:bg-amber-50/60",
     optionSelected: "border-gray-400 bg-gray-50",
     kbd: "border-amber-100 bg-white text-disabled",
-    input: "",
+    input: "focus-visible:border-amber-400 focus-visible:ring-2 focus-visible:ring-amber-500/20",
     button: "bg-amber-600 hover:bg-amber-700",
     frame: "border-amber-300/80",
   },
@@ -86,7 +99,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     option: "hover:border-sky-400 hover:bg-sky-50/60",
     optionSelected: "border-gray-400 bg-gray-50",
     kbd: "border-sky-100 bg-white text-disabled",
-    input: "",
+    input: "focus-visible:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-500/20",
     button: "bg-sky-600 hover:bg-sky-700",
     frame: "border-sky-300/80",
   },
@@ -99,7 +112,7 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     option: "hover:border-rose-400 hover:bg-rose-50/60",
     optionSelected: "border-gray-400 bg-gray-50",
     kbd: "border-rose-100 bg-white text-disabled",
-    input: "",
+    input: "focus-visible:border-rose-400 focus-visible:ring-2 focus-visible:ring-rose-500/20",
     button: "bg-rose-600 hover:bg-rose-700",
     frame: "border-rose-300/80",
   },
@@ -112,7 +125,8 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
     option: "border-gray-700 bg-gray-800/80 text-gray-100 hover:bg-gray-700 hover:border-gray-500 hover:text-white",
     optionSelected: "border-gray-400 bg-gray-700 text-white",
     kbd: "border-gray-600 bg-gray-800 text-gray-500",
-    input: "border-gray-700 bg-gray-800/60 text-gray-100 placeholder:text-gray-500",
+    input:
+      "border-gray-700 bg-gray-800/60 text-gray-100 placeholder:text-gray-500 focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-400/20",
     button: "bg-emerald-500 hover:bg-emerald-400 text-gray-950",
     frame: "border-gray-600",
   },
@@ -120,4 +134,21 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
 
 export function flavorStyles(flavor: string | undefined): FlavorStyles {
   return FLAVOR_STYLES[(flavor ?? "classic") as CardFlavor] ?? FLAVOR_STYLES.classic;
+}
+
+// Page-level wash behind each flavor: the chat shell cross-fades these so
+// the backdrop follows the card on stage instead of clashing with it.
+// classic keeps the shell's original green; night gets a light dusk tint --
+// a truly dark page would invert the whole shell around one card.
+export const FLAVOR_WASHES: Record<CardFlavor, string> = {
+  classic: "bg-gradient-to-b from-green-50/80 via-white to-white",
+  mint: "bg-gradient-to-b from-emerald-50 via-white to-white",
+  sand: "bg-gradient-to-b from-amber-50/90 via-white to-white",
+  sky: "bg-gradient-to-b from-sky-50/90 via-white to-white",
+  rose: "bg-gradient-to-b from-rose-50/80 via-white to-white",
+  night: "bg-gradient-to-b from-slate-200/60 via-white to-white",
+};
+
+export function flavorWash(flavor: string | undefined): string {
+  return FLAVOR_WASHES[(flavor ?? "classic") as CardFlavor] ?? FLAVOR_WASHES.classic;
 }

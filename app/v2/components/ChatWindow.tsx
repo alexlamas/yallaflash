@@ -34,14 +34,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ReviewTier, V2Message, V2Pack, Widget, WordProposal } from "@/app/v2/lib/types";
 import { gradeDeterministic } from "@/app/v2/lib/gradingCore";
+import { climbPercent } from "@/app/v2/lib/levels";
+import { HIDDEN_PREFIXES, liftStaleCommentary } from "@/app/v2/lib/history";
+import { CARD_FLAVORS, FLAVOR_WASHES, type CardFlavor } from "@/app/v2/lib/cardFlavors";
 import { apiFetch, apiJSON as fetchJSON } from "@/app/v2/lib/api";
 import { reviewHaptic, scheduleReviewReminder, tapHaptic } from "@/app/v2/lib/native";
 
 const STORAGE_KEY = "yallaflash_v2_conversation_id";
-
-// Synthetic ground-truth messages fed back into the model after a
-// widget-driven mutation (see tutorPrompt.ts) -- shown to the tutor, not the user.
-const HIDDEN_PREFIXES = ["[REVIEW RESULT]", "[WORDS CONFIRMED]", "[PACK STARTED]", "[SERVED]"];
 
 // Widget types that block the action chips while waiting on the user.
 // onboarding_choice is deliberately NOT here: it's a suggestion, not a gate,
@@ -280,6 +279,42 @@ export function ChatWindow() {
     next.add(key);
     syncAnsweredKeys(next);
   };
+  // Ref mirror of the transcript for async completions (same reason as
+  // answeredKeysRef): a reply handler needs the CURRENT open card, not the
+  // one its closure captured before the network round trip.
+  const messagesRef = useRef<V2Message[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // A tutor turn that deleted (or regraded) the word whose card is on the
+  // table leaves a dead card: its chips offer "Show answer" for a word that
+  // no longer exists. The data_change receipt carries the affected arabizi
+  // -- retire the matching open card so the session moves on cleanly.
+  function retireDeadCard(message: V2Message) {
+    const deadNames = new Set<string>();
+    for (const widget of message.widgets ?? []) {
+      if (widget.type === "data_change" && (widget.action === "deleted" || widget.action === "regraded")) {
+        deadNames.add(widget.arabizi.toLowerCase());
+        widget.changes.forEach((change) => deadNames.add(change.field.toLowerCase()));
+      }
+    }
+    if (deadNames.size === 0) return;
+    const list = messagesRef.current;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const widgets = list[i].widgets ?? [];
+      for (let j = widgets.length - 1; j >= 0; j--) {
+        const widget = widgets[j];
+        if (!isReviewWidget(widget)) continue;
+        const key = `${list[i].id}:${j}`;
+        const name = (widget.answer?.arabizi ?? widget.cue.arabizi ?? "").toLowerCase();
+        if (!answeredKeysRef.current.has(key) && name && deadNames.has(name)) {
+          recordAnswered(key);
+        }
+        return;
+      }
+    }
+  }
 
   useEffect(() => {
     const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
@@ -314,15 +349,9 @@ export function ChatWindow() {
     };
   }, [progressKey]);
 
-  const progressTotals = progressData
-    ? progressData.counts.new + progressData.counts.learning + progressData.counts.learned
-    : 0;
-  const progressPercent =
-    !progressData || progressTotals === 0
-      ? 0
-      : Math.round(
-          ((progressData.counts.learned + 0.5 * progressData.counts.learning) / progressTotals) * 100
-        );
+  // Same metric as the panel's big number (climbPercent) -- the app must
+  // never show two different "percents" for the same collection.
+  const progressPercent = progressData ? climbPercent(progressData.words) : 0;
   const dueNow = progressData?.counts.dueNow ?? 0;
 
   const visibleMessages = useMemo(
@@ -374,6 +403,13 @@ export function ChatWindow() {
   // A miss (or reveal) puts a red card on stage -- the shell's green wash
   // follows it so the backdrop matches the card instead of clashing.
   const missShowing = verdictShowing && verdictWidget !== null && !verdictWidget.correct;
+  // While a card waits, the page wash follows ITS flavor -- a sky card on
+  // the green backdrop read as two unrelated surfaces. Everything else
+  // (verdicts, hero, idle chat) keeps the classic green.
+  const activeFlavor: CardFlavor =
+    pending && isReviewWidget(pending.widget) && pending.widget.flavor && pending.widget.flavor in FLAVOR_WASHES
+      ? (pending.widget.flavor as CardFlavor)
+      : "classic";
 
   // The steady view shows only the active exchange: the last assistant
   // message (plus the user message that prompted it), extended back to keep
@@ -403,29 +439,47 @@ export function ChatWindow() {
     setShowHistory(false);
   }, [visibleMessages.length]);
 
-  // Enter (or N) advances to the next word once a verdict is showing --
-  // reviewing never needs the mouse.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" && event.key.toLowerCase() !== "n") return;
-      const target = event.target as HTMLElement | null;
-      // Buttons handle their own Enter -- firing the shortcut too would
-      // trigger a focused chip AND advance in the same keypress.
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "BUTTON"))
-        return;
-      if (pending || loading || checking) return;
-      if (verdictShowing) serveNext(lastReviewedRef.current ?? undefined);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, loading, checking, verdictShowing, conversationId]);
-
   useEffect(() => {
     if (showHistory && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [showHistory]);
+
+  // Type-to-focus: printable keys land in the chat box even when nothing is
+  // focused -- unless a card on stage owns them (number keys on multiple
+  // choice, tile letters on the builder, the typed cards' own inputs, N on
+  // the verdict). The keystroke is appended by hand so it's never lost to
+  // the focus change.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Bare space stays the scroll key; IME composition stays the IME's.
+      if (event.key.length !== 1 || event.key === " " || event.isComposing) return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      )
+        return;
+      if (pending && isReviewWidget(pending.widget)) {
+        const widget = pending.widget;
+        if (widget.type === "quiz_mc" && /^\d$/.test(event.key)) return;
+        if (widget.type === "word_builder") return;
+        // The typed cards re-capture stray typing into their own answer
+        // field (see RecallInput/ProduceCold) -- stay out of their way.
+        if (widget.type === "recall_input" || widget.type === "produce_cold") return;
+      }
+      if (!pending && verdictShowing && event.key.toLowerCase() === "n") return;
+      event.preventDefault();
+      setInput((current) => current + event.key);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pending, verdictShowing]);
 
   // A long verdict+commentary+card exchange can extend below the fold
   // (worst on mobile with the keyboard up) -- keep the newest content in
@@ -461,7 +515,7 @@ export function ChatWindow() {
       await bootstrap();
       return;
     }
-    const loaded = data as V2Message[];
+    let loaded = data as V2Message[];
     // Which widgets were answered lives only in client state, so on reload
     // presume every interactive widget was handled -- EXCEPT the open card:
     // the newest interactive widget, when it's a review card with no later
@@ -488,6 +542,12 @@ export function ChatWindow() {
         }
         break outer;
       }
+    }
+    // Those same late-persisted commentary rows would also RENDER under the
+    // open card, reading as replies to it (the exact bug this session keeps
+    // hitting) -- restore the live splice order before anything shows.
+    if (openKey) {
+      loaded = liftStaleCommentary(loaded, openKey.slice(0, openKey.lastIndexOf(":")));
     }
     const seeded = new Set<string>();
     loaded.forEach((message, index) => {
@@ -705,7 +765,15 @@ export function ChatWindow() {
       const message = finalMessage;
       setMessages((prev) =>
         placeholderId
-          ? prev.map((m) => (m.id === placeholderId ? message : m))
+          ? prev.map((m) => {
+              if (m.id !== placeholderId) return m;
+              // Keep the placeholder's id for text-only replies: swapping to
+              // the persisted id remounts the bubble (AnimatePresence keys by
+              // id), so the streamed text visibly exited and re-entered right
+              // as it finished. Widget-carrying replies swap fully -- answer
+              // tracking keys off the real message id.
+              return (message.widgets ?? []).length > 0 ? message : { ...message, id: placeholderId as string };
+            })
           : [...prev, message]
       );
       return message;
@@ -750,7 +818,7 @@ export function ChatWindow() {
 
     try {
       if (!background) {
-        await streamChat(text);
+        retireDeadCard(await streamChat(text));
         return true;
       }
       const data = await fetchJSON<{ conversationId: string; message: V2Message }>("/api/v2/chat", {
@@ -758,6 +826,7 @@ export function ChatWindow() {
         message: text,
       });
       setConversationId(data.conversationId);
+      retireDeadCard(data.message);
       setMessages((prev) => {
         // Race guard for background commentary: if the user already advanced
         // to a new card, this reply is about the PREVIOUS word -- slot it in
@@ -889,6 +958,9 @@ export function ChatWindow() {
   }
 
   type AnswerResult = {
+    // The word was deleted while its card sat on the table -- nothing was
+    // graded or scheduled, the card is simply void.
+    voided?: boolean;
     correct: boolean;
     // The model judged the answer half right -- scheduled as "struggled"
     // rather than a full miss. Only ever true when correct is false.
@@ -942,6 +1014,10 @@ export function ChatWindow() {
           arabizi: review.answer.arabizi,
           english: review.answer.english,
           script: review.cue?.script ?? null,
+          // Production cards already carry a leak-safe concept image --
+          // rendered NOW, never patched in later (a block appearing after
+          // the fact jolts the whole card taller).
+          image_url: "image_url" in review ? review.image_url ?? null : null,
           next_review_date: "",
         },
       ]);
@@ -953,12 +1029,23 @@ export function ChatWindow() {
       prefetchNext(wordId);
       try {
         const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, direction, submitted, hinted });
+        if (result.voided) {
+          // The word was deleted out from under its card -- take the verdict
+          // back out; there is nothing to schedule or discuss.
+          setMessages((prev) => prev.filter((m) => m.id !== verdictId));
+          appendLocalMessage("That word was deleted, so this card doesn't count — carry on.");
+          sessionStats.current.reviewed -= 1;
+          if (instant) sessionStats.current.correct -= 1;
+          return true;
+        }
         refreshProgress();
+        // Patch ONLY what swaps text in place (the schedule, a flipped
+        // grade). Script and image stay whatever rendered initially: adding
+        // a new block a beat later is exactly the height-jump jank the
+        // verdict card kept producing.
         patchVerdict(verdictId, {
           correct: result.correct,
-          script: result.script,
           next_review_date: result.next_review_date,
-          image_url: result.image_url,
         });
         await sendMessage(
           `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct}${hinted ? " hinted=true (counts as struggled -- shorter interval)" : ""} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
@@ -980,6 +1067,11 @@ export function ChatWindow() {
     setChecking(true);
     try {
       const result = await fetchJSON<AnswerResult>("/api/v2/review/answer", { wordId, tier, direction, submitted, hinted });
+      if (result.voided) {
+        recordAnswered(key);
+        appendLocalMessage("That word was deleted, so this card doesn't count — carry on.");
+        return true;
+      }
       recordAnswered(key);
       reviewHaptic(result.correct);
       refreshProgress();
@@ -1104,6 +1196,9 @@ export function ChatWindow() {
   function actionsFor(key: string): WidgetActions {
     return {
       onAnswer: (wordId, tier, submitted) => answerReview(key, wordId, tier, submitted),
+      // "I don't know" on the card itself -- only the pending card renders
+      // it, and concedePending already grades the pending widget.
+      onConcede: () => concedePending(),
       onConfirmWords: async (proposals) => {
         const ok = await baseActions.onConfirmWords(proposals);
         if (ok) recordAnswered(key);
@@ -1230,6 +1325,12 @@ export function ChatWindow() {
     // A concede wipes any hint taken -- otherwise the flag would silently
     // penalize this word's NEXT (unhinted) correct answer in-session.
     hintedRef.current.delete(widget.word_id);
+    // Set BEFORE the answer round trip: the chips stay live during a
+    // concede, and an immediate "Next word" must exclude THIS word -- with
+    // the ref still on the previous word, the serve raced the SRS write and
+    // dealt the just-conceded card straight back.
+    lastReviewedRef.current = widget.word_id;
+    prefetchNext(widget.word_id);
     setError(null);
 
     let verdictId: string | null = null;
@@ -1242,6 +1343,8 @@ export function ChatWindow() {
           arabizi: widget.answer.arabizi,
           english: widget.answer.english,
           script: widget.cue?.script ?? null,
+          // Rendered now or never -- see the deterministic path.
+          image_url: "image_url" in widget ? widget.image_url ?? null : null,
           next_review_date: "",
         },
       ]);
@@ -1259,12 +1362,16 @@ export function ChatWindow() {
             : undefined,
         concede: true,
       });
+      if (result.voided) {
+        if (verdictId) setMessages((prev) => prev.filter((m) => m.id !== verdictId));
+        appendLocalMessage("That word was deleted, so this card doesn't count — carry on.");
+        return;
+      }
       refreshProgress();
       if (verdictId) {
+        // Text-in-place only -- late script/image blocks jolt the card.
         patchVerdict(verdictId, {
-          script: result.script,
           next_review_date: result.next_review_date,
-          image_url: result.image_url,
         });
       } else {
         appendLocalMessage("", [
@@ -1303,15 +1410,27 @@ export function ChatWindow() {
     visibleMessages[0].role === "assistant" &&
     !(visibleMessages[0].widgets ?? []).some((w) => w.type === "onboarding_choice");
 
+  // Tutor-suggested quick replies (suggest_chips tool) ride the NEWEST
+  // assistant message only -- once anything else lands they're stale and
+  // vanish on their own. "next" is intercepted to the fast serve path.
+  const suggestedChips = useMemo(() => {
+    const last = visibleMessages[visibleMessages.length - 1];
+    if (!last || last.role !== "assistant") return [];
+    return (last.widgets ?? [])
+      .filter((w): w is Extract<Widget, { type: "suggested_chips" }> => w.type === "suggested_chips")
+      .flatMap((w) => w.chips)
+      .slice(0, 3);
+  }, [visibleMessages]);
+
   const chips: { label: string; kbd?: string; primary?: boolean; onClick: () => void }[] = (() => {
-    // checking included: Show answer/Skip during the model-fallback grade
+    // checking included: concede/Skip during the model-fallback grade
     // would double-grade the same card.
     if (loading || checking || messages.length === 0 || showHero) return [];
+    const base = (() => {
     if (pending) {
       if (reviewPending) {
         const reviewWidget = pending.widget as ReviewWidget;
         return [
-          { label: "Show answer", onClick: concedePending },
           {
             label: "Skip",
             onClick: () => {
@@ -1340,6 +1459,9 @@ export function ChatWindow() {
       // One-tap dispute on a miss: the tutor sees the submitted answer in
       // [REVIEW RESULT] and regrades when the case is fair.
       const disputable = verdictWidget && !verdictWidget.correct && !verdictWidget.conceded;
+      // Chips name the word outright -- "this word" made the tutor ask
+      // "which word do you mean?" when commentary had touched several.
+      const name = verdictWidget ? `"${verdictWidget.arabizi}"` : "this word";
       return [
         {
           label: "Next word",
@@ -1356,8 +1478,8 @@ export function ChatWindow() {
               },
             ]
           : []),
-        { label: "Explain more", onClick: () => sendMessage("Tell me more about this word") },
-        { label: "Give an example", onClick: () => sendMessage("Use it in an example sentence") },
+        { label: "Explain more", onClick: () => sendMessage(`Tell me more about ${name}`) },
+        { label: "Give an example", onClick: () => sendMessage(`Use ${name} in an example sentence`) },
       ];
     }
     // A brand-new user mid-onboarding has nothing to review yet -- don't
@@ -1373,7 +1495,7 @@ export function ChatWindow() {
     // (Only once progress has actually loaded -- dueNow defaults to 0.)
     if (dueNow === 0 && progressData !== null && hasStarted && !onboardingShowing) {
       return [
-        { label: "Learn new words", primary: true, onClick: learnNewWords },
+        { label: "Learn new words", kbd: "↵", primary: true, onClick: learnNewWords },
         { label: "Review ahead", onClick: () => serveNext(undefined, { ahead: true }) },
         addWords,
       ];
@@ -1381,11 +1503,55 @@ export function ChatWindow() {
 
     const review = {
       label: hasStarted ? "Next word" : "Start review",
+      kbd: "↵",
       primary: true,
       onClick: () => serveNext(),
     };
     return [...(onboardingShowing && !hasStarted ? [] : [review]), addWords];
+    })();
+
+    // Tutor-suggested chips lead, deduped against the standard set. A
+    // "next"-sending suggestion takes over as the primary continue action
+    // (and with it, the Enter shortcut).
+    const suggested = suggestedChips.map((chip) => {
+      const isNext = chip.send.trim().toLowerCase() === "next";
+      return {
+        label: chip.label,
+        primary: isNext,
+        kbd: isNext ? "↵" : undefined,
+        onClick: () =>
+          isNext ? serveNext(lastReviewedRef.current ?? undefined) : void sendMessage(chip.send),
+      };
+    });
+    const seen = new Set(suggested.map((chip) => chip.label.toLowerCase()));
+    return [...suggested, ...base.filter((chip) => !seen.has(chip.label.toLowerCase()))];
   })();
+
+  // Enter fires the primary continue chip wherever one is showing (Next
+  // word, Start review, Learn new words, the hero) -- reviewing never needs
+  // the mouse. N stays a verdict-only alias: anywhere else it's a letter
+  // that belongs to the chat input. Lives BELOW the chips computation so the
+  // dependency isn't read before initialization.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const isEnter = event.key === "Enter";
+      if (!isEnter && !(verdictShowing && event.key.toLowerCase() === "n")) return;
+      const target = event.target as HTMLElement | null;
+      // Buttons handle their own Enter -- firing the shortcut too would
+      // trigger a focused chip AND advance in the same keypress.
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "BUTTON"))
+        return;
+      if (pending || loading || checking) return;
+      if (showHero) {
+        if (isEnter && dueNow > 0) serveNext();
+        return;
+      }
+      chips.find((chip) => chip.primary)?.onClick();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, loading, checking, verdictShowing, showHero, dueNow, chips]);
 
   if (error && messages.length === 0) {
     return (
@@ -1479,15 +1645,20 @@ export function ChatWindow() {
       className="relative isolate flex h-[100dvh] bg-white"
       style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      {/* Gradients can't transition, so the green and red washes are two
-          layers cross-fading behind the content. */}
-      <div
-        aria-hidden
-        className={cn(
-          "absolute inset-0 -z-10 bg-gradient-to-b from-green-50/80 via-white to-white transition-opacity duration-700",
-          missShowing && "opacity-0"
-        )}
-      />
+      {/* Gradients can't transition, so the washes are stacked layers
+          cross-fading behind the content: one per card flavor (the backdrop
+          follows the card on stage), plus red for a miss. */}
+      {CARD_FLAVORS.map((flavor) => (
+        <div
+          key={flavor}
+          aria-hidden
+          className={cn(
+            "absolute inset-0 -z-10 transition-opacity duration-700",
+            FLAVOR_WASHES[flavor],
+            (missShowing || activeFlavor !== flavor) && "opacity-0"
+          )}
+        />
+      ))}
       <div
         aria-hidden
         className={cn(
@@ -1572,9 +1743,12 @@ export function ChatWindow() {
             aria-relevant="additions"
             className={cn(
               "max-w-2xl mx-auto w-full flex flex-col gap-4",
-              // Center the lone active exchange vertically for a stage feel;
-              // with history expanded it behaves like a normal transcript.
-              !showHistory && "min-h-full justify-center"
+              // The hero centers like a title screen. Active exchanges anchor
+              // to a FIXED top line instead: vertical centering redistributed
+              // the whole column every time a streaming reply grew a line, so
+              // the stage swam upward while the tutor typed.
+              !showHistory &&
+                (showHero ? "min-h-full justify-center" : "min-h-full pt-[max(1.5rem,calc(28dvh-6rem))]")
             )}
           >
             {showHistory && (
@@ -1651,9 +1825,11 @@ export function ChatWindow() {
                 </motion.div>
               ) : (
                 activeMessages.map((message, i) => (
+                  // No layout prop here on purpose: layout springs re-animate
+                  // every sibling whenever a streaming bubble grows a line,
+                  // which is exactly the swimming the stage kept doing.
                   <motion.div
                     key={message.id}
-                    layout
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -16, transition: { duration: 0.18, ease: "easeOut" } }}
