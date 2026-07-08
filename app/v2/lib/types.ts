@@ -156,6 +156,10 @@ export type Widget =
       tiles: string[];
       // What picked tiles are joined with: "" letter mode, " " phrase mode.
       separator: "" | " ";
+      // How many tiles the answer uses -- the bank may hold decoy letters
+      // beyond these. Optional: widgets persisted before decoys existed
+      // lack it, and there every tile is part of the answer.
+      size?: number;
       flavor?: string;
       answer?: ReviewAnswer;
       // English is the visible cue here (like produce_cold), so a concept

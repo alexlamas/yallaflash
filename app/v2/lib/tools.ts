@@ -590,6 +590,7 @@ export async function buildReviewWidget(
       cue: { english: word.english, memory_hook: word.memory_hook },
       tiles: tileSet.tiles,
       separator: tileSet.separator,
+      size: tileSet.size,
       answer,
       flavor,
       // English is already the visible cue, so a concept image can't leak.
