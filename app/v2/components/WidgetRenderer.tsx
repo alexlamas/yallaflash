@@ -3,6 +3,7 @@ import { WordCard } from "./WordCard";
 import { QuizMC } from "./QuizMC";
 import { RecallInput } from "./RecallInput";
 import { ProduceCold } from "./ProduceCold";
+import { WordBuilder } from "./WordBuilder";
 import { AddWordsPreview } from "./AddWordsPreview";
 import { WordPicker } from "./WordPicker";
 import { OnboardingChoice } from "./OnboardingChoice";
@@ -59,6 +60,8 @@ export function WidgetRenderer({
       return <RecallInput widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
     case "produce_cold":
       return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
+    case "word_builder":
+      return <WordBuilder widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
     case "add_words_preview":
       return (
         <AddWordsPreview

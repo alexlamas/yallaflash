@@ -76,6 +76,14 @@ describe("gradeDeterministic", () => {
     expect(gradeDeterministic("easy", "shway", answer, "to_target")).toBe(false);
   });
 
+  it("grades tile-builder assemblies (to_target on medium) deterministically", async () => {
+    const { gradeDeterministic } = await import("../gradingCore");
+    expect(gradeDeterministic("medium", "ktir", answer, "to_target")).toBe(true);
+    // A wrong tile order is wrong -- the letters were on the table, so no
+    // near-miss band and no model call.
+    expect(gradeDeterministic("medium", "krit", answer, "to_target")).toBe(false);
+  });
+
   it("decides exact typed recall instantly, defers synonyms", async () => {
     const { gradeDeterministic } = await import("../gradingCore");
     expect(gradeDeterministic("medium", "very", answer)).toBe(true);

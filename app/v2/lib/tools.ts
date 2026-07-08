@@ -4,6 +4,7 @@ import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import type { DueWord, ReviewContext, ReviewCue, ReviewTier, Widget, WordProposal } from "./types";
 import { DEFAULT_LANGUAGE } from "./language";
 import { randomFlavor } from "./cardFlavors";
+import { buildTiles } from "./tiles";
 
 export interface ToolContext {
   supabase: SupabaseClient;
@@ -398,14 +399,19 @@ function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-type ReviewCardWidget = Extract<Widget, { type: "quiz_mc" | "recall_input" | "produce_cold" }>;
+type ReviewCardWidget = Extract<
+  Widget,
+  { type: "quiz_mc" | "recall_input" | "produce_cold" | "word_builder" }
+>;
 
-// Which side a card keeps hidden until the user answers. Production cards
-// and reversed multiple choice hide the word; everything else hides the
-// English meaning.
+// Which side a card keeps hidden until the user answers. Production cards,
+// tile builders, and reversed multiple choice hide the word; everything
+// else hides the English meaning.
 export function cardAsksForTarget(widget: ReviewCardWidget): boolean {
   return (
-    widget.type === "produce_cold" || (widget.type === "quiz_mc" && widget.direction === "to_target")
+    widget.type === "produce_cold" ||
+    widget.type === "word_builder" ||
+    (widget.type === "quiz_mc" && widget.direction === "to_target")
   );
 }
 
@@ -420,6 +426,8 @@ export function buildServedLine(
   const asks = asksTarget
     ? widget.type === "quiz_mc"
       ? `the right ${DEFAULT_LANGUAGE.romanization} option for the shown English`
+      : widget.type === "word_builder"
+      ? `the ${DEFAULT_LANGUAGE.romanization}, assembled from its own scrambled tiles`
       : widget.context
       ? `the ${DEFAULT_LANGUAGE.romanization} missing from a sentence`
       : `the ${DEFAULT_LANGUAGE.romanization} from memory`
@@ -455,7 +463,7 @@ async function startReview(
   // card as "how do you say 'a lot'?" gives the meaning away). Derived from
   // the built widget, not the tier: format is shuffled per card.
   const asksTarget = cardAsksForTarget(widget);
-  const context = widget.context;
+  const context = widget.type === "word_builder" ? undefined : widget.context;
   return {
     result: {
       tier,
@@ -466,6 +474,8 @@ async function startReview(
             : "multiple choice"
           : widget.type === "recall_input"
           ? "typed meaning"
+          : widget.type === "word_builder"
+          ? `tile builder: English shown, the ${DEFAULT_LANGUAGE.romanization} assembled from its own scrambled tiles`
           : context
           ? "fill-in-the-blank sentence"
           : `typed ${DEFAULT_LANGUAGE.romanization} from memory`,
@@ -473,6 +483,7 @@ async function startReview(
         ? {
             english: word.english,
             memory_hook: word.memory_hook,
+            ...(widget.type === "word_builder" ? { scrambled_tiles: widget.tiles } : {}),
             ...(context ? { sentence_with_blank: context.target, sentence_english: context.english } : {}),
           }
         : {
@@ -483,6 +494,8 @@ async function startReview(
       card_asks_user_for: asksTarget
         ? widget.type === "quiz_mc"
           ? `picking the right ${DEFAULT_LANGUAGE.romanization} option`
+          : widget.type === "word_builder"
+          ? "assembling the word from the tiles"
           : `the ${DEFAULT_LANGUAGE.romanization}, typed from memory`
         : "the English meaning",
       do_not_reveal_in_your_text: asksTarget
@@ -551,6 +564,38 @@ export async function buildReviewWidget(
         `You overhear "${word.arabizi}" — what did they say?`,
         `Quick one: "${word.arabizi}" in English?`,
       ]);
+
+  // Scaffolded production for not-yet-learned words: assemble the word from
+  // its own scrambled tiles. A stepping stone toward the hard tier's cold
+  // typing, mixed in so easy/medium words don't always get the same format.
+  // Never when a context sentence is attached (the sentence contains the
+  // word, so the card would print its own answer), and only when the word
+  // splits into a real puzzle.
+  const tileSet = !context && Math.random() < (tier === "medium" ? 0.4 : 0.3) ? buildTiles(word.arabizi) : null;
+  if (tileSet) {
+    return {
+      type: "word_builder",
+      word_id: word.id,
+      tier,
+      prompt:
+        tileSet.separator === " "
+          ? pick([
+              `Put the words in order for "${word.english}".`,
+              `Arrange the tiles — how do you say "${word.english}"?`,
+            ])
+          : pick([
+              `Build the word for "${word.english}" from the tiles.`,
+              `Tap the letters in order — how do you say "${word.english}"?`,
+            ]),
+      cue: { english: word.english, memory_hook: word.memory_hook },
+      tiles: tileSet.tiles,
+      separator: tileSet.separator,
+      answer,
+      flavor,
+      // English is already the visible cue, so a concept image can't leak.
+      image_url: await findImageForWord(ctx.supabase, word.english),
+    };
+  }
 
   if (tier === "medium") {
     return {
