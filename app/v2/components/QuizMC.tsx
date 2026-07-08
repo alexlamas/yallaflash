@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { splitCueAside } from "@/app/v2/lib/leakGuard";
 import { ContextSentence } from "./ReviewContext";
 import { IDontKnow } from "./IDontKnow";
 import type { Widget } from "@/app/v2/lib/types";
@@ -68,20 +69,34 @@ export function QuizMC({
             {widget.cue.script}
           </div>
         )}
-        {/* Sentence-length "words" exist in real collections -- the display
-            font steps down so they read as a sentence, not a shout. */}
-        <div
-          className={cn(
-            active
-              ? (cueWord ?? "").length > 28
-                ? "text-xl font-title"
-                : "text-3xl font-title"
-              : "text-lg font-medium",
-            styles.cue
-          )}
-        >
-          {cueWord}
-        </div>
+        {/* Reversed cards cue with english, where grammar asides drop to a
+            small line; sentence-length cues step the display font down so
+            they read as a sentence, not a shout. Arabizi cues render as
+            stored -- their parentheses are gender/plural variants, part of
+            the word itself. */}
+        {(() => {
+          const isEnglishCue = !widget.cue.arabizi;
+          const { main, aside } = isEnglishCue
+            ? splitCueAside(cueWord ?? "")
+            : { main: cueWord ?? "", aside: null };
+          return (
+            <>
+              <div
+                className={cn(
+                  active
+                    ? main.length > 28
+                      ? "text-xl font-title"
+                      : "text-3xl font-title"
+                    : "text-lg font-medium",
+                  styles.cue
+                )}
+              >
+                {main}
+              </div>
+              {aside && <div className={cn("text-xs italic", styles.muted)}>{aside}</div>}
+            </>
+          );
+        })()}
         {widget.context && (
           <ContextSentence
             text={widget.context.target}

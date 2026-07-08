@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { DEFAULT_LANGUAGE } from "@/app/v2/lib/language";
 import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { splitCueAside } from "@/app/v2/lib/leakGuard";
 import { ContextSentence } from "./ReviewContext";
 import { IDontKnow } from "./IDontKnow";
 import type { Widget } from "@/app/v2/lib/types";
@@ -64,7 +65,10 @@ export function ProduceCold({
     if (!ok) setSubmitted(false);
   };
 
-  const cueWord = widget.cue.english ?? "";
+  // Grammar asides move out of the headline into a small line; sentence-
+  // length meanings step the display font down so they read as a sentence,
+  // not a shout.
+  const { main: cueMain, aside: cueAside } = splitCueAside(widget.cue.english ?? "");
   const card = (
     <Card className={cn(active ? "w-full max-w-md mx-auto rounded-2xl shadow-lg" : "max-w-sm", styles.card)}>
       <CardContent className={cn("space-y-3", active ? "p-7 text-center" : "p-4")}>
@@ -76,17 +80,20 @@ export function ProduceCold({
             className="h-24 w-24 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
           />
         )}
-        {/* Sentence-length meanings step the display font down so they read
-            as a sentence, not a shout. */}
         <div
           className={cn(
-            active ? (cueWord.length > 28 ? "text-xl font-title" : "text-3xl font-title") : "text-lg font-medium",
+            active ? (cueMain.length > 28 ? "text-xl font-title" : "text-3xl font-title") : "text-lg font-medium",
             styles.cue
           )}
         >
-          {widget.cue.english}
+          {cueMain}
         </div>
-        {widget.cue.memory_hook && <div className={cn("text-xs", styles.muted)}>{widget.cue.memory_hook}</div>}
+        {cueAside && <div className={cn("text-xs italic", styles.muted)}>{cueAside}</div>}
+        {/* With a sentence on the card the hook is one muted line too many
+            -- context does the reminding. */}
+        {widget.cue.memory_hook && !widget.context && (
+          <div className={cn("text-xs", styles.muted)}>{widget.cue.memory_hook}</div>
+        )}
         {widget.context && (
           // Cloze: the word arrives already blanked out of the sentence, so
           // showing the translation alongside is leak-safe on this tier.

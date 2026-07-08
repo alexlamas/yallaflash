@@ -3,8 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import type { DueWord, ReviewContext, ReviewCue, Widget, WordProposal } from "./types";
 import { DEFAULT_LANGUAGE } from "./language";
-import { randomFlavor } from "./cardFlavors";
-import { leakFreeEnglish } from "./leakGuard";
+import { flavorForWord } from "./cardFlavors";
+import { leakFreeEnglish, leaksWord } from "./leakGuard";
 import { buildTiles } from "./tiles";
 import { levelForProgress, tierForLevel, type WordLevel } from "./levels";
 
@@ -424,6 +424,13 @@ function pick<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
+// "Slipping" for the card's color: badly overdue -- two days is well past
+// any early-rung interval and a real slice of a long one.
+export function isSlipping(nextReviewDate: string | null | undefined): boolean {
+  if (!nextReviewDate) return false;
+  return Date.now() - new Date(nextReviewDate).getTime() > 2 * 24 * 3600_000;
+}
+
 type ReviewCardWidget = Extract<
   Widget,
   { type: "quiz_mc" | "recall_input" | "produce_cold" | "word_builder" }
@@ -469,7 +476,7 @@ async function startReview(
 ): Promise<{ result: unknown; widget?: Widget }> {
   const { data: progress, error: progressError } = await ctx.supabase
     .from("v2_word_progress")
-    .select("status, review_count, interval")
+    .select("status, review_count, interval, next_review_date")
     .eq("user_id", ctx.userId)
     .eq("word_id", wordId)
     .maybeSingle();
@@ -484,7 +491,13 @@ async function startReview(
 
   const level = levelForProgress(progress);
 
-  const widget = (await buildReviewWidget(ctx, word, level, contextSentence)) as ReviewCardWidget;
+  const widget = (await buildReviewWidget(
+    ctx,
+    word,
+    level,
+    contextSentence,
+    isSlipping(progress?.next_review_date)
+  )) as ReviewCardWidget;
   // Tell the model exactly what the card displays and what must stay hidden,
   // so its lead-in text can't leak the answer (e.g. framing a recognition
   // card as "how do you say 'a lot'?" gives the meaning away). Derived from
@@ -538,7 +551,8 @@ export async function buildReviewWidget(
   ctx: ToolContext,
   word: { id: string; language_id: string; arabizi: string; script: string | null; english: string; memory_hook: string | null },
   level: WordLevel,
-  contextSentence?: ContextSentenceInput
+  contextSentence?: ContextSentenceInput,
+  slipping = false
 ): Promise<Widget> {
   // The stored english can embed a usage example that contains the word
   // itself ("mind / attention (as in 'khalli belak')") -- shown on a card it
@@ -546,13 +560,17 @@ export async function buildReviewWidget(
   // goes through the leak guard. The guarded text still grades as an exact
   // match (englishVariants covers the parens-free form).
   const english = leakFreeEnglish(word.english, word.arabizi);
+  // Same guard for the memory hook: hooks are written ABOUT the word and
+  // routinely quote it ("'nrou7' after yalla..."), which on a production
+  // card is the answer in plain sight. A leaky hook is simply dropped.
+  const memoryHook = word.memory_hook && !leaksWord(word.memory_hook, word.arabizi) ? word.memory_hook : null;
   // Ground truth rides along (not rendered on the card) so the client can
   // grade exact matches instantly instead of waiting on a round trip.
   const answer = { arabizi: word.arabizi, english };
   // The word's numbered level decides the FORMAT (see levels.ts for the
-  // ladder); only the visual flavor and prompt phrasing stay random, so a
-  // session still reads as a shuffled deck without the difficulty drifting.
-  const flavor = randomFlavor();
+  // ladder); the color says how the word is doing (see flavorForWord) --
+  // only the prompt phrasing stays random.
+  const flavor = flavorForWord(level, slipping);
   const tier = tierForLevel(level);
   const rom = DEFAULT_LANGUAGE.romanization;
   const sentence = usableSentence(contextSentence, word.arabizi);
@@ -565,7 +583,7 @@ export async function buildReviewWidget(
   // sentence turns it into fill-in-the-blank (most natural at level 5,
   // where the word is established and context is the remaining challenge).
   if (level >= 4) {
-    const cue: ReviewCue = { english, memory_hook: word.memory_hook };
+    const cue: ReviewCue = { english, memory_hook: memoryHook };
     // Cloze: the word is blanked out HERE, so the rendered widget never
     // carries the sentence with the answer still in it.
     const context: ReviewContext | undefined = sentence
@@ -655,7 +673,7 @@ export async function buildReviewWidget(
               `Tap the letters in order — how do you say "${english}"?`,
             ])
           : "Build it from the tiles — how do you say this?",
-      cue: { english, memory_hook: word.memory_hook },
+      cue: { english, memory_hook: memoryHook },
       tiles: tileSet.tiles,
       separator: tileSet.separator,
       size: tileSet.size,

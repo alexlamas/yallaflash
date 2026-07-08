@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leakFreeEnglish, leaksWord } from "../leakGuard";
+import { leakFreeEnglish, leaksWord, splitCueAside } from "../leakGuard";
 import { englishVariants, normalize } from "../gradingCore";
 
 describe("leaksWord", () => {
@@ -38,5 +38,30 @@ describe("leakFreeEnglish", () => {
 
   it("leaves innocent text alone", () => {
     expect(leakFreeEnglish("fine (monetary penalty)", "gharame")).toBe("fine (monetary penalty)");
+  });
+});
+
+describe("splitCueAside", () => {
+  it("moves the grammar note out of the headline", () => {
+    expect(splitCueAside("we go / let's go (1st person plural of 'to go')")).toEqual({
+      main: "we go / let's go",
+      aside: "1st person plural of 'to go'",
+    });
+  });
+
+  it("joins multiple asides", () => {
+    expect(splitCueAside("fine (money) (also: OK)")).toEqual({
+      main: "fine",
+      aside: "money · also: OK",
+    });
+  });
+
+  it("keeps a parens-only english intact", () => {
+    expect(splitCueAside("(present continuous marker) -ing").main).toBe("-ing");
+    expect(splitCueAside("(hello)")).toEqual({ main: "(hello)", aside: null });
+  });
+
+  it("passes plain text through", () => {
+    expect(splitCueAside("uphill")).toEqual({ main: "uphill", aside: null });
   });
 });

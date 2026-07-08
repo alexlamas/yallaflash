@@ -26,6 +26,23 @@ export function leaksWord(text: string, arabizi: string): boolean {
   return leakTokens(arabizi).some((token) => words.some((word) => word.startsWith(token)));
 }
 
+// Grammar asides packed into the stored english -- "we go / let's go (1st
+// person plural of 'to go')" -- read fine in a table but terrible as a card
+// headline. Split them out so the card shows the meaning big and the aside
+// small. Purely presentational: grading still sees the full string.
+export function splitCueAside(english: string): { main: string; aside: string | null } {
+  const asides: string[] = [];
+  const main = english
+    .replace(/\s*\(([^)]*)\)/g, (_, inner: string) => {
+      if (inner.trim()) asides.push(inner.trim());
+      return " ";
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!main) return { main: english, aside: null };
+  return { main, aside: asides.length > 0 ? asides.join(" · ") : null };
+}
+
 export function leakFreeEnglish(english: string, arabizi: string): string {
   if (!leaksWord(english, arabizi)) return english;
   // Parenthetical asides are where the example almost always lives. Drop

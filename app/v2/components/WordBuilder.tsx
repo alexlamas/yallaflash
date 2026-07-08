@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { splitCueAside } from "@/app/v2/lib/leakGuard";
 import { IDontKnow } from "./IDontKnow";
 import type { Widget } from "@/app/v2/lib/types";
 
@@ -103,9 +104,24 @@ export function WordBuilder({
             className="h-24 w-24 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
           />
         )}
-        <div className={cn(active ? "text-3xl font-title" : "text-lg font-medium", styles.cue)}>
-          {widget.cue.english}
-        </div>
+        {/* Grammar asides drop out of the headline; sentence-length
+            meanings step the font down. */}
+        {(() => {
+          const { main, aside } = splitCueAside(widget.cue.english ?? "");
+          return (
+            <>
+              <div
+                className={cn(
+                  active ? (main.length > 28 ? "text-xl font-title" : "text-3xl font-title") : "text-lg font-medium",
+                  styles.cue
+                )}
+              >
+                {main}
+              </div>
+              {aside && <div className={cn("text-xs italic", styles.muted)}>{aside}</div>}
+            </>
+          );
+        })()}
         {widget.cue.memory_hook && <div className={cn("text-xs", styles.muted)}>{widget.cue.memory_hook}</div>}
         <div className={cn("text-sm", styles.muted)}>{widget.prompt}</div>
 

@@ -1,15 +1,26 @@
-// Visual variety for review cards: each card is dealt a flavor when it's
-// built server-side, and the flavor rides in the widget so a card keeps its
-// look across reloads. Purely presentational -- grading, tiers, and the SRS
-// never read it. "classic" reproduces the original card styling exactly, so
-// widgets persisted before flavors existed render unchanged.
+// Review-card color, dealt server-side at build time; the flavor rides in
+// the widget so a card keeps its look across reloads. Flavors started as
+// random variety and now MEAN something -- see flavorForWord -- but they
+// stay purely presentational: grading, tiers, and the SRS never read one.
+// "classic" reproduces the original card styling exactly, so widgets
+// persisted before flavors existed render unchanged.
 
 export type CardFlavor = "classic" | "mint" | "sand" | "sky" | "rose" | "night";
 
 export const CARD_FLAVORS: CardFlavor[] = ["classic", "mint", "sand", "sky", "rose", "night"];
 
-export function randomFlavor(): CardFlavor {
-  return CARD_FLAVORS[Math.floor(Math.random() * CARD_FLAVORS.length)];
+// Color as state, not decoration: the card (and the page wash behind it)
+// says at a glance how this word is doing. Warm rose = it's slipping and
+// needs the rescue; cool sky = brand new, no judgment yet; mint -> sand ->
+// classic green track the climb; night = the summit look for established
+// words. Good/bad verdict color (green/red) stays the verdict card's job.
+export function flavorForWord(level: number, slipping: boolean): CardFlavor {
+  if (slipping) return "rose";
+  if (level <= 0) return "sky";
+  if (level <= 2) return "mint";
+  if (level === 3) return "sand";
+  if (level === 4) return "classic";
+  return "night";
 }
 
 export interface FlavorStyles {

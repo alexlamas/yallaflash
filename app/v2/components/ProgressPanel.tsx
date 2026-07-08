@@ -36,9 +36,11 @@ function retentionNow(word: ProgressWord, now: number): number | null {
   return Math.exp(-elapsedDays / stability);
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-subtle">{children}</div>
+    <div className={cn("text-[10px] font-mono uppercase tracking-[0.14em] text-subtle", className)}>
+      {children}
+    </div>
   );
 }
 
@@ -177,7 +179,9 @@ function SlippingSection({ data, onPrompt }: { data: ProgressData; onPrompt: (te
   return (
     <section>
       <div className="flex items-baseline justify-between">
-        <SectionLabel>Slipping away</SectionLabel>
+        {/* Warning-colored on purpose: this is the "needs you" list -- amber
+            here, green for growth in the ladder, red/green verdicts in chat. */}
+        <SectionLabel className="text-amber-600/90">Slipping away</SectionLabel>
         {hidden > 0 && (
           <span className="text-[10px] font-mono text-disabled tabular-nums">+{hidden} more</span>
         )}
@@ -190,7 +194,7 @@ function SlippingSection({ data, onPrompt }: { data: ProgressData; onPrompt: (te
             key={w.id}
             onClick={() => onPrompt(`Quiz me on "${w.arabizi}"`)}
             aria-label={`Quiz me on ${w.arabizi}`}
-            className="px-1.5 py-1 text-[13px] leading-5 text-body rounded-md transition-[color,transform] hover:text-green-700 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600"
+            className="px-1.5 py-1 text-[13px] leading-5 text-body rounded-md transition-[color,transform] hover:text-amber-700 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600"
           >
             {w.arabizi}
           </button>

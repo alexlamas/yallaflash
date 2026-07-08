@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
-import { buildReviewWidget, buildServedLine, getDefaultLanguageId, levelForProgress } from "@/app/v2/lib/tools";
+import { buildReviewWidget, buildServedLine, getDefaultLanguageId, isSlipping, levelForProgress } from "@/app/v2/lib/tools";
 import { maybeContextSentence } from "@/app/v2/lib/sentenceGen";
 import type { Widget } from "@/app/v2/lib/types";
 
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
     let dueQuery = supabase
       .from("v2_word_progress")
-      .select("status, review_count, interval, v2_words!inner(*)")
+      .select("status, review_count, interval, next_review_date, v2_words!inner(*)")
       .eq("user_id", user.id)
       .order("next_review_date", { ascending: true })
       .limit(excludeWordId ? 2 : 1);
@@ -116,7 +116,13 @@ export async function POST(req: Request) {
     // fill-in-the-blank on production), like a teacher testing it in use.
     // Bounded by a tight timeout; the prefetch path hides it entirely.
     const sentence = await maybeContextSentence(word, level);
-    const widget = await buildReviewWidget(ctx, word, level, sentence ?? undefined);
+    const widget = await buildReviewWidget(
+      ctx,
+      word,
+      level,
+      sentence ?? undefined,
+      isSlipping((row as { next_review_date?: string }).next_review_date)
+    );
 
     if (peek) {
       return NextResponse.json({ widget });
