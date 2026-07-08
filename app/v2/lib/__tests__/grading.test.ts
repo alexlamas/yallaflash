@@ -28,25 +28,25 @@ describe("englishVariants", () => {
 describe("gradeRecognition (deterministic paths)", () => {
   it("accepts any variant of a multi-meaning answer", async () => {
     // Regression: "Very" against "a lot / very" was graded wrong.
-    await expect(gradeRecognition("Very", "a lot / very")).resolves.toBe(true);
-    await expect(gradeRecognition("a lot", "a lot / very")).resolves.toBe(true);
+    await expect(gradeRecognition("Very", "a lot / very")).resolves.toMatchObject({ correct: true });
+    await expect(gradeRecognition("a lot", "a lot / very")).resolves.toMatchObject({ correct: true });
   });
 
   it("accepts the full stored string, as MC clicks submit it", async () => {
     await expect(
       gradeRecognition("a lot / very", "a lot / very", { llmFallback: false })
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ correct: true });
   });
 
   it("is case and punctuation insensitive", async () => {
-    await expect(gradeRecognition("  VERY!", "a lot / very")).resolves.toBe(true);
+    await expect(gradeRecognition("  VERY!", "a lot / very")).resolves.toMatchObject({ correct: true });
   });
 
-  it("rejects wrong answers without the fallback", async () => {
-    await expect(gradeRecognition("bread", "a lot / very", { llmFallback: false })).resolves.toBe(
-      false
-    );
-    await expect(gradeRecognition("", "a lot / very")).resolves.toBe(false);
+  it("rejects wrong answers without the fallback, with no partial credit", async () => {
+    await expect(
+      gradeRecognition("bread", "a lot / very", { llmFallback: false })
+    ).resolves.toEqual({ correct: false });
+    await expect(gradeRecognition("", "a lot / very")).resolves.toEqual({ correct: false });
   });
 });
 

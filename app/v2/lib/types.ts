@@ -61,8 +61,10 @@ export interface V2Message {
   created_at: string;
 }
 
-// Review tier determines which widget is used to test a word, and caps how
-// the answer maps to a rating for calculateNextReview. See docs/v2-plan.md.
+// The coarse grading bucket for a card: what counts as a pass, the rating
+// cap for calculateNextReview, and whether "learned" can be earned. WHICH
+// test format a word gets is decided by its numbered level (see levels.ts);
+// the tier is derived from that level and rides on the widget for grading.
 export type ReviewTier = "easy" | "medium" | "hard";
 
 // Which side of the word a card asks for. "to_english" (default, and the
@@ -119,6 +121,10 @@ export type Widget =
       type: "quiz_mc";
       word_id: string;
       tier: ReviewTier;
+      // The word's numbered level (0-5, see levels.ts) when the card was
+      // built. Informational -- grading reads the tier; widgets persisted
+      // before levels existed lack it.
+      level?: number;
       prompt: string;
       cue: ReviewCue;
       options: string[];
@@ -138,6 +144,7 @@ export type Widget =
       type: "recall_input";
       word_id: string;
       tier: ReviewTier;
+      level?: number;
       prompt: string;
       cue: ReviewCue;
       flavor?: string;
@@ -151,6 +158,7 @@ export type Widget =
       type: "word_builder";
       word_id: string;
       tier: ReviewTier;
+      level?: number;
       prompt: string;
       cue: ReviewCue;
       tiles: string[];
@@ -170,6 +178,7 @@ export type Widget =
       type: "produce_cold";
       word_id: string;
       tier: ReviewTier;
+      level?: number;
       prompt: string;
       cue: ReviewCue;
       flavor?: string;
@@ -207,6 +216,12 @@ export type Widget =
       type: "review_verdict";
       correct: boolean;
       conceded?: boolean;
+      // The model judged the answer half right (right word, real error --
+      // or overlapping meaning): not a pass, but scheduled as "struggled"
+      // instead of a full miss. Only ever true when correct is false.
+      partial?: boolean;
+      // The model's one-line reason when it judged a non-obvious answer.
+      note?: string | null;
       // A hint was used before this answer -- correct, but scheduled as
       // "struggled" rather than a full success.
       hinted?: boolean;
