@@ -16,10 +16,12 @@ function escapeRegExp(value: string): string {
 function renderBlanks(text: string, keyPrefix: string): ReactNode[] {
   return text.split(/(_{3,})/).map((part, i) =>
     /^_{3,}$/.test(part) ? (
+      // The gap is a quiet tinted slot, not a dashed line -- it should read
+      // as a place where a word goes, like a rounded selection highlight.
       <span
         key={`${keyPrefix}-${i}`}
         aria-label="blank"
-        className="inline-block min-w-12 border-b-2 border-dashed border-current opacity-50 align-middle"
+        className="mx-0.5 inline-block h-[1.05em] min-w-14 translate-y-[0.18em] rounded-md bg-current opacity-[0.13]"
       />
     ) : (
       part
@@ -33,12 +35,16 @@ export function ContextSentence({
   highlight,
   className,
   highlightClassName,
+  large = false,
 }: {
   text: string;
   translation?: string | null;
   highlight?: string | null;
   className?: string;
   highlightClassName?: string;
+  // Cloze cards make the sentence the headline -- bigger type, roomier
+  // translation.
+  large?: boolean;
 }) {
   let body: ReactNode[];
   if (highlight?.trim()) {
@@ -58,9 +64,11 @@ export function ContextSentence({
   }
 
   return (
-    <div className={cn("space-y-1", className)}>
-      <div className="text-base leading-relaxed">&ldquo;{body}&rdquo;</div>
-      {translation && <div className="text-xs italic opacity-80">{translation}</div>}
+    <div className={cn(large ? "space-y-2" : "space-y-1", className)}>
+      <div className={cn("leading-relaxed", large ? "text-xl" : "text-base")}>{body}</div>
+      {translation && (
+        <div className={cn("italic opacity-80", large ? "text-sm" : "text-xs")}>{translation}</div>
+      )}
     </div>
   );
 }

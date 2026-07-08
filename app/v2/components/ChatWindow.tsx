@@ -439,24 +439,6 @@ export function ChatWindow() {
     setShowHistory(false);
   }, [visibleMessages.length]);
 
-  // Enter (or N) advances to the next word once a verdict is showing --
-  // reviewing never needs the mouse.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Enter" && event.key.toLowerCase() !== "n") return;
-      const target = event.target as HTMLElement | null;
-      // Buttons handle their own Enter -- firing the shortcut too would
-      // trigger a focused chip AND advance in the same keypress.
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "BUTTON"))
-        return;
-      if (pending || loading || checking) return;
-      if (verdictShowing) serveNext(lastReviewedRef.current ?? undefined);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, loading, checking, verdictShowing, conversationId]);
-
   useEffect(() => {
     if (showHistory && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -1513,7 +1495,7 @@ export function ChatWindow() {
     // (Only once progress has actually loaded -- dueNow defaults to 0.)
     if (dueNow === 0 && progressData !== null && hasStarted && !onboardingShowing) {
       return [
-        { label: "Learn new words", primary: true, onClick: learnNewWords },
+        { label: "Learn new words", kbd: "↵", primary: true, onClick: learnNewWords },
         { label: "Review ahead", onClick: () => serveNext(undefined, { ahead: true }) },
         addWords,
       ];
@@ -1521,23 +1503,55 @@ export function ChatWindow() {
 
     const review = {
       label: hasStarted ? "Next word" : "Start review",
+      kbd: "↵",
       primary: true,
       onClick: () => serveNext(),
     };
     return [...(onboardingShowing && !hasStarted ? [] : [review]), addWords];
     })();
 
-    // Tutor-suggested chips lead, deduped against the standard set.
-    const suggested = suggestedChips.map((chip) => ({
-      label: chip.label,
-      onClick: () =>
-        chip.send.trim().toLowerCase() === "next"
-          ? serveNext(lastReviewedRef.current ?? undefined)
-          : void sendMessage(chip.send),
-    }));
+    // Tutor-suggested chips lead, deduped against the standard set. A
+    // "next"-sending suggestion takes over as the primary continue action
+    // (and with it, the Enter shortcut).
+    const suggested = suggestedChips.map((chip) => {
+      const isNext = chip.send.trim().toLowerCase() === "next";
+      return {
+        label: chip.label,
+        primary: isNext,
+        kbd: isNext ? "↵" : undefined,
+        onClick: () =>
+          isNext ? serveNext(lastReviewedRef.current ?? undefined) : void sendMessage(chip.send),
+      };
+    });
     const seen = new Set(suggested.map((chip) => chip.label.toLowerCase()));
     return [...suggested, ...base.filter((chip) => !seen.has(chip.label.toLowerCase()))];
   })();
+
+  // Enter fires the primary continue chip wherever one is showing (Next
+  // word, Start review, Learn new words, the hero) -- reviewing never needs
+  // the mouse. N stays a verdict-only alias: anywhere else it's a letter
+  // that belongs to the chat input. Lives BELOW the chips computation so the
+  // dependency isn't read before initialization.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const isEnter = event.key === "Enter";
+      if (!isEnter && !(verdictShowing && event.key.toLowerCase() === "n")) return;
+      const target = event.target as HTMLElement | null;
+      // Buttons handle their own Enter -- firing the shortcut too would
+      // trigger a focused chip AND advance in the same keypress.
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "BUTTON"))
+        return;
+      if (pending || loading || checking) return;
+      if (showHero) {
+        if (isEnter && dueNow > 0) serveNext();
+        return;
+      }
+      chips.find((chip) => chip.primary)?.onClick();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, loading, checking, verdictShowing, showHero, dueNow, chips]);
 
   if (error && messages.length === 0) {
     return (

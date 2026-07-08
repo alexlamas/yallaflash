@@ -80,30 +80,36 @@ export function ProduceCold({
             className="h-24 w-24 rounded-xl object-cover mx-auto outline outline-1 -outline-offset-1 outline-black/10"
           />
         )}
-        <div
-          className={cn(
-            active ? (cueMain.length > 28 ? "text-xl font-title" : "text-3xl font-title") : "text-lg font-medium",
-            styles.cue
-          )}
-        >
-          {cueMain}
-        </div>
-        {cueAside && <div className={cn("text-xs italic", styles.muted)}>{cueAside}</div>}
-        {/* With a sentence on the card the hook is one muted line too many
-            -- context does the reminding. */}
-        {widget.cue.memory_hook && !widget.context && (
-          <div className={cn("text-xs", styles.muted)}>{widget.cue.memory_hook}</div>
-        )}
-        {widget.context && (
-          // Cloze: the word arrives already blanked out of the sentence, so
-          // showing the translation alongside is leak-safe on this tier.
+        {/* Cloze cards let the sentence BE the card: the translation carries
+            the meaning, the gap asks the question -- no English headline, no
+            hook, no instruction line stacked on top (that read as a wall of
+            text). The plain from-memory card keeps its cue-and-prompt shape. */}
+        {widget.context ? (
+          // The word arrives already blanked out of the sentence, so showing
+          // the translation alongside is leak-safe on this tier.
           <ContextSentence
             text={widget.context.target}
             translation={widget.context.english}
             className={styles.context}
+            large={active}
           />
+        ) : (
+          <>
+            <div
+              className={cn(
+                active ? (cueMain.length > 28 ? "text-xl font-title" : "text-3xl font-title") : "text-lg font-medium",
+                styles.cue
+              )}
+            >
+              {cueMain}
+            </div>
+            {cueAside && <div className={cn("text-xs italic", styles.muted)}>{cueAside}</div>}
+            {widget.cue.memory_hook && (
+              <div className={cn("text-xs", styles.muted)}>{widget.cue.memory_hook}</div>
+            )}
+            <div className={cn("text-sm", styles.muted)}>{widget.prompt}</div>
+          </>
         )}
-        <div className={cn("text-sm", styles.muted)}>{widget.prompt}</div>
         <div className="flex gap-2">
           <Input
             ref={inputRef}
