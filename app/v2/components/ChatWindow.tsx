@@ -363,6 +363,17 @@ export function ChatWindow() {
     return null;
   }, [visibleMessages]);
   const verdictShowing = !pending && verdictIndex !== null;
+  const verdictWidget = useMemo(() => {
+    if (verdictIndex === null) return null;
+    return (
+      (visibleMessages[verdictIndex].widgets ?? []).find(
+        (w): w is Extract<Widget, { type: "review_verdict" }> => w.type === "review_verdict"
+      ) ?? null
+    );
+  }, [visibleMessages, verdictIndex]);
+  // A miss (or reveal) puts a red card on stage -- the shell's green wash
+  // follows it so the backdrop matches the card instead of clashing.
+  const missShowing = verdictShowing && verdictWidget !== null && !verdictWidget.correct;
 
   // The steady view shows only the active exchange: the last assistant
   // message (plus the user message that prompted it), extended back to keep
@@ -602,7 +613,7 @@ export function ChatWindow() {
     let buffer = "";
     let placeholderId: string | null = null;
 
-    const updatePlaceholder = (content: string) => {
+    const renderPlaceholder = (content: string) => {
       if (!content) return;
       if (!placeholderId) {
         placeholderId = nextLocalId();
@@ -626,6 +637,27 @@ export function ChatWindow() {
       // Growing text doesn't change message COUNT, so the length-keyed
       // auto-scroll effect never fires -- keep the tail in view directly.
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    };
+
+    // Short replies generate fast and arrive in a couple of big snapshots,
+    // which on screen reads as "no streaming at all". Reveal the text at a
+    // reading pace instead, accelerating with the backlog so a long reply
+    // never lags the wire by more than a beat.
+    let revealTarget = "";
+    let revealShown = 0;
+    let revealFrame: number | null = null;
+    const revealTick = () => {
+      revealFrame = null;
+      revealShown = Math.min(revealShown, revealTarget.length);
+      const backlog = revealTarget.length - revealShown;
+      if (backlog === 0) return;
+      revealShown += Math.min(Math.max(2, Math.ceil(backlog / 6)), 24);
+      renderPlaceholder(revealTarget.slice(0, Math.min(revealShown, revealTarget.length)));
+      if (revealShown < revealTarget.length) revealFrame = requestAnimationFrame(revealTick);
+    };
+    const updatePlaceholder = (content: string) => {
+      revealTarget = content;
+      if (revealFrame === null) revealFrame = requestAnimationFrame(revealTick);
     };
 
     try {
@@ -656,6 +688,20 @@ export function ChatWindow() {
         }
       }
       if (!finalMessage) throw new Error("The tutor's reply was cut off — try again.");
+      // Let the reveal finish typing before the persisted message (full text
+      // + widgets) replaces the placeholder -- a short reply's tail arrives
+      // in the same beat as "done", and swapping right away would snap it to
+      // complete before any typing is seen. Capped so a throttled background
+      // tab can't stall the turn.
+      if (revealShown < revealTarget.length) {
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            const poll = () => (revealShown >= revealTarget.length ? resolve() : window.setTimeout(poll, 40));
+            poll();
+          }),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 2000)),
+        ]);
+      }
       const message = finalMessage;
       setMessages((prev) =>
         placeholderId
@@ -672,6 +718,9 @@ export function ChatWindow() {
       }
       throw err;
     } finally {
+      // A queued reveal frame firing after the swap would re-create the
+      // placeholder bubble next to the real message.
+      if (revealFrame !== null) cancelAnimationFrame(revealFrame);
       setStreamingId(null);
     }
   }
@@ -1293,10 +1342,7 @@ export function ChatWindow() {
     if (verdictShowing) {
       // One-tap dispute on a miss: the tutor sees the submitted answer in
       // [REVIEW RESULT] and regrades when the case is fair.
-      const verdict = (visibleMessages[verdictIndex!].widgets ?? []).find(
-        (w): w is Extract<Widget, { type: "review_verdict" }> => w.type === "review_verdict"
-      );
-      const disputable = verdict && !verdict.correct && !verdict.conceded;
+      const disputable = verdictWidget && !verdictWidget.correct && !verdictWidget.conceded;
       return [
         {
           label: "Next word",
@@ -1433,9 +1479,25 @@ export function ChatWindow() {
     // prefers-reduced-motion users -- per-component checks don't scale.
     <MotionConfig reducedMotion="user">
     <div
-      className="flex h-[100dvh] bg-gradient-to-b from-green-50/80 via-white to-white"
+      className="relative isolate flex h-[100dvh] bg-white"
       style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
+      {/* Gradients can't transition, so the green and red washes are two
+          layers cross-fading behind the content. */}
+      <div
+        aria-hidden
+        className={cn(
+          "absolute inset-0 -z-10 bg-gradient-to-b from-green-50/80 via-white to-white transition-opacity duration-700",
+          missShowing && "opacity-0"
+        )}
+      />
+      <div
+        aria-hidden
+        className={cn(
+          "absolute inset-0 -z-10 bg-gradient-to-b from-red-50/60 via-white to-white transition-opacity duration-700",
+          !missShowing && "opacity-0"
+        )}
+      />
       <div className="relative flex flex-col flex-1 min-w-0">
         {/* V2 owns its shell: the logo is the app menu (log out, old app). */}
         <div className="hidden lg:block absolute top-4 left-4 z-10">
