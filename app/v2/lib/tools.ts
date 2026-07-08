@@ -1,10 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
-import type { DueWord, ReviewContext, ReviewCue, ReviewTier, Widget, WordProposal } from "./types";
+import type { DueWord, ReviewContext, ReviewCue, Widget, WordProposal } from "./types";
 import { DEFAULT_LANGUAGE } from "./language";
 import { randomFlavor } from "./cardFlavors";
 import { buildTiles } from "./tiles";
+import { levelForProgress, tierForLevel, type WordLevel } from "./levels";
 
 export interface ToolContext {
   supabase: SupabaseClient;
@@ -57,7 +58,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: "start_review",
     description:
-      "Given a specific due word you've decided to test next, deterministically build the review widget for it. The app picks the difficulty tier from the word's own progress and shuffles the card's format and look -- you choose which due word to test, and can optionally wrap it in a sentence for variety.",
+      "Given a specific due word you've decided to test next, deterministically build the review widget for it. The app computes the word's numbered level (0-5) from its own progress and that level decides the test format (recognition choice -> reversed choice -> tile builder -> typed recall -> cold production) -- you choose which due word to test, and can optionally wrap it in a sentence for variety.",
     input_schema: {
       type: "object",
       properties: {
@@ -365,11 +366,10 @@ async function getWordDetail(ctx: ToolContext, wordId: string): Promise<{ result
   };
 }
 
-export function tierForProgress(progress: { status: string; review_count: number } | null): ReviewTier {
-  if (!progress || progress.status === "new" || progress.review_count === 0) return "easy";
-  if (progress.status === "learning") return "medium";
-  return "hard";
-}
+// Which test format a level gets is fixed in buildReviewWidget; this is the
+// grading bucket that rides on the widget. Re-exported so route code can
+// stay on one import.
+export { levelForProgress, tierForLevel } from "./levels";
 
 // A model-supplied sentence for start_review. Validated server-side before
 // it reaches a card: it must actually contain the word, and its translation
@@ -432,7 +432,7 @@ export function buildServedLine(
       ? `the ${DEFAULT_LANGUAGE.romanization} missing from a sentence`
       : `the ${DEFAULT_LANGUAGE.romanization} from memory`
     : "the English meaning";
-  return `[SERVED] word_id=${word.id} arabizi="${word.arabizi}" english="${word.english}" tier=${widget.tier} asks=${asksTarget ? "arabizi" : "english"} -- the app served this card directly; the user hasn't answered yet. The card asks for ${asks}.`;
+  return `[SERVED] word_id=${word.id} arabizi="${word.arabizi}" english="${word.english}"${widget.level !== undefined ? ` level=${widget.level}` : ""} tier=${widget.tier} asks=${asksTarget ? "arabizi" : "english"} -- the app served this card directly; the user hasn't answered yet. The card asks for ${asks}.`;
 }
 
 async function startReview(
@@ -442,7 +442,7 @@ async function startReview(
 ): Promise<{ result: unknown; widget?: Widget }> {
   const { data: progress, error: progressError } = await ctx.supabase
     .from("v2_word_progress")
-    .select("status, review_count")
+    .select("status, review_count, interval")
     .eq("user_id", ctx.userId)
     .eq("word_id", wordId)
     .maybeSingle();
@@ -455,9 +455,9 @@ async function startReview(
     .single();
   if (wordError) throw wordError;
 
-  const tier = tierForProgress(progress);
+  const level = levelForProgress(progress);
 
-  const widget = (await buildReviewWidget(ctx, word, tier, contextSentence)) as ReviewCardWidget;
+  const widget = (await buildReviewWidget(ctx, word, level, contextSentence)) as ReviewCardWidget;
   // Tell the model exactly what the card displays and what must stay hidden,
   // so its lead-in text can't leak the answer (e.g. framing a recognition
   // card as "how do you say 'a lot'?" gives the meaning away). Derived from
@@ -466,7 +466,8 @@ async function startReview(
   const context = widget.type === "word_builder" ? undefined : widget.context;
   return {
     result: {
-      tier,
+      level,
+      tier: widget.tier,
       format:
         widget.type === "quiz_mc"
           ? asksTarget
@@ -509,20 +510,24 @@ async function startReview(
 export async function buildReviewWidget(
   ctx: ToolContext,
   word: { id: string; language_id: string; arabizi: string; script: string | null; english: string; memory_hook: string | null },
-  tier: ReviewTier,
+  level: WordLevel,
   contextSentence?: ContextSentenceInput
 ): Promise<Widget> {
   // Ground truth rides along (not rendered on the card) so the client can
   // grade exact matches instantly instead of waiting on a round trip.
   const answer = { arabizi: word.arabizi, english: word.english };
-  // Every card is dealt a visual flavor and a prompt phrasing at random, so
-  // a session reads as a shuffled deck instead of one repeating form. None
-  // of this touches grading -- the tier still decides what's asked.
+  // The word's numbered level decides the FORMAT (see levels.ts for the
+  // ladder); only the visual flavor and prompt phrasing stay random, so a
+  // session still reads as a shuffled deck without the difficulty drifting.
   const flavor = randomFlavor();
+  const tier = tierForLevel(level);
   const rom = DEFAULT_LANGUAGE.romanization;
   const sentence = usableSentence(contextSentence, word.arabizi);
 
-  if (tier === "hard") {
+  // Levels 4-5: cold production -- type the word from memory. A supplied
+  // sentence turns it into fill-in-the-blank (most natural at level 5,
+  // where the word is established and context is the remaining challenge).
+  if (level >= 4) {
     const cue: ReviewCue = { english: word.english, memory_hook: word.memory_hook };
     // Cloze: the word is blanked out HERE, so the rendered widget never
     // carries the sentence with the answer still in it.
@@ -533,6 +538,7 @@ export async function buildReviewWidget(
       type: "produce_cold",
       word_id: word.id,
       tier,
+      level,
       prompt: context
         ? pick([
             `Fill the blank — type the missing ${rom}.`,
@@ -565,18 +571,33 @@ export async function buildReviewWidget(
         `Quick one: "${word.arabizi}" in English?`,
       ]);
 
-  // Scaffolded production for not-yet-learned words: assemble the word from
-  // its own scrambled tiles. A stepping stone toward the hard tier's cold
-  // typing, mixed in so easy/medium words don't always get the same format.
+  // Level 3: typed meaning, no options.
+  if (level === 3) {
+    return {
+      type: "recall_input",
+      word_id: word.id,
+      tier,
+      level,
+      prompt: recognitionPrompt,
+      cue,
+      answer,
+      flavor,
+      context,
+    };
+  }
+
+  // Level 2: scaffolded production -- assemble the word from its own
+  // scrambled tiles, the stepping stone toward level 4's cold typing.
   // Never when a context sentence is attached (the sentence contains the
   // word, so the card would print its own answer), and only when the word
-  // splits into a real puzzle.
-  const tileSet = !context && Math.random() < (tier === "medium" ? 0.4 : 0.3) ? buildTiles(word.arabizi) : null;
+  // splits into a real puzzle; otherwise fall through to the level-1 form.
+  const tileSet = level === 2 && !context ? buildTiles(word.arabizi) : null;
   if (tileSet) {
     return {
       type: "word_builder",
       word_id: word.id,
       tier,
+      level,
       prompt:
         tileSet.separator === " "
           ? pick([
@@ -597,29 +618,16 @@ export async function buildReviewWidget(
     };
   }
 
-  if (tier === "medium") {
-    return {
-      type: "recall_input",
-      word_id: word.id,
-      tier,
-      prompt: recognitionPrompt,
-      cue,
-      answer,
-      flavor,
-      context,
-    };
-  }
-
-  // Easy tier: half the time the card flips -- English shown, word options.
-  // Never when a context sentence is attached: the sentence contains the
-  // word, so a reversed card would print its own answer.
-  const reversed = !context && Math.random() < 0.5;
-  if (reversed) {
+  // Levels 1-2 (when tiles don't apply): reversed choice -- English shown,
+  // word options. Never when a context sentence is attached: the sentence
+  // contains the word, so a reversed card would print its own answer.
+  if (level >= 1 && !context) {
     const distractors = await getDistractors(ctx, word, "arabizi");
     return {
       type: "quiz_mc",
       word_id: word.id,
       tier,
+      level,
       direction: "to_target",
       prompt: pick([`Which one means "${word.english}"?`, `Pick the word for "${word.english}".`]),
       cue: { english: word.english },
@@ -629,11 +637,14 @@ export async function buildReviewWidget(
     };
   }
 
+  // Level 0 (and any context-carrying card below level 3): recognition
+  // multiple choice.
   const distractors = await getDistractors(ctx, word, "english");
   return {
     type: "quiz_mc",
     word_id: word.id,
     tier,
+    level,
     direction: "to_english",
     prompt: recognitionPrompt,
     cue,
@@ -770,7 +781,7 @@ async function regradeReview(
     .eq("id", wordId)
     .maybeSingle();
 
-  const tier = tierForProgress({ status: progress.status, review_count: progress.review_count });
+  const tier = tierForLevel(levelForProgress(progress));
   const rating = !correct ? 0 : tier === "hard" ? 3 : 2;
   const { interval, easeFactor, nextReviewDate } = calculateNextReview(
     progress.interval ?? 0,

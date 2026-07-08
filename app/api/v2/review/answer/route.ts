@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
 import { calculateNextReview } from "@/app/services/spacedRepetitionService";
-import { gradeColdRecall, gradeDeterministic, gradeRecognition } from "@/app/v2/lib/grading";
+import { gradeColdRecall, gradeDeterministic, gradeRecognition, type GradeVerdict } from "@/app/v2/lib/grading";
 import { findImageForWord } from "@/app/v2/lib/tools";
 import type { ReviewDirection, ReviewTier } from "@/app/v2/lib/types";
 
@@ -52,15 +52,22 @@ export async function POST(req: Request) {
     // grades against the word itself, deterministically (options are the
     // stored strings, so a click is never a near-miss).
     const direction = data.direction === "to_target" ? "to_target" : "to_english";
-    const correct = concede
-      ? false
+    const verdict: GradeVerdict = concede
+      ? { correct: false }
       : tier === "hard"
       ? await gradeColdRecall(submitted, word.arabizi)
       : direction === "to_target"
-      ? gradeDeterministic(tier, submitted, { arabizi: word.arabizi, english: word.english }, direction) === true
+      ? { correct: gradeDeterministic(tier, submitted, { arabizi: word.arabizi, english: word.english }, direction) === true }
       : await gradeRecognition(submitted, word.english, { llmFallback: tier === "medium" });
 
-    const rating = !correct ? 0 : hinted ? 1 : tier === "hard" ? 3 : 2;
+    const correct = verdict.correct;
+    // Only a model judgment can set this: an answer that isn't right but
+    // isn't a plain miss either (right word with a real error, overlapping
+    // meaning). It schedules as "struggled" -- rating 1, a short interval --
+    // instead of the full reset a miss gets. Deterministic grades and
+    // concessions stay strictly correct/wrong.
+    const partial = !correct && verdict.partial === true;
+    const rating = correct ? (hinted ? 1 : tier === "hard" ? 3 : 2) : partial ? 1 : 0;
 
     const { data: progress } = await supabase
       .from("v2_word_progress")
@@ -99,6 +106,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       correct,
+      partial,
+      // The model's one-line reason when it judged a non-obvious answer,
+      // shown on the verdict card so the grade never looks arbitrary.
+      note: verdict.note ?? null,
       arabizi: word.arabizi,
       english: word.english,
       script: word.script,

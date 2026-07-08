@@ -841,6 +841,11 @@ export function ChatWindow() {
 
   type AnswerResult = {
     correct: boolean;
+    // The model judged the answer half right -- scheduled as "struggled"
+    // rather than a full miss. Only ever true when correct is false.
+    partial?: boolean;
+    // The model's one-line reason for a non-obvious grade.
+    note?: string | null;
     arabizi: string;
     english: string;
     script: string | null;
@@ -933,6 +938,8 @@ export function ChatWindow() {
         {
           type: "review_verdict",
           correct: result.correct,
+          partial: result.partial,
+          note: result.note,
           hinted: hinted && result.correct,
           submitted,
           arabizi: result.arabizi,
@@ -948,7 +955,7 @@ export function ChatWindow() {
       lastReviewedRef.current = wordId;
       prefetchNext(wordId);
       await sendMessage(
-        `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
+        `[REVIEW RESULT] word_id=${wordId} submitted="${submitted}" correct=${result.correct}${result.partial ? " partial=true (the grader gave half credit -- scheduled as struggled, a short interval; don't overturn it)" : ""}${result.note ? ` grader_note="${result.note}"` : ""} arabizi="${result.arabizi}" script="${result.script ?? ""}" next_review_date="${result.next_review_date}"`,
         { background: true }
       );
       return true;

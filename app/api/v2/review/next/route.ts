@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
-import { buildReviewWidget, buildServedLine, getDefaultLanguageId, tierForProgress } from "@/app/v2/lib/tools";
+import { buildReviewWidget, buildServedLine, getDefaultLanguageId, levelForProgress } from "@/app/v2/lib/tools";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Serves the next due card deterministically -- one DB round trip, no model
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
     let dueQuery = supabase
       .from("v2_word_progress")
-      .select("status, review_count, v2_words!inner(*)")
+      .select("status, review_count, interval, v2_words!inner(*)")
       .eq("user_id", user.id)
       .order("next_review_date", { ascending: true })
       .limit(excludeWordId ? 2 : 1);
@@ -101,8 +101,12 @@ export async function POST(req: Request) {
     const word = row.v2_words as unknown as WordRow;
     const languageId = await getDefaultLanguageId(supabase);
     const ctx = { supabase, userId: user.id, languageId };
-    const tier = tierForProgress({ status: row.status, review_count: row.review_count });
-    const widget = await buildReviewWidget(ctx, word, tier);
+    const level = levelForProgress({
+      status: row.status,
+      review_count: row.review_count,
+      interval: row.interval,
+    });
+    const widget = await buildReviewWidget(ctx, word, level);
 
     if (peek) {
       return NextResponse.json({ widget });

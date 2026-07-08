@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Check, Minus, X } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -18,19 +18,28 @@ function relativeTime(iso: string): string {
 
 export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "review_verdict" }> }) {
   const reduceMotion = useReducedMotion();
+  // Half credit: the grader judged the answer close (right word with a real
+  // error, overlapping meaning) -- its own amber state between the two.
+  const partial = !widget.correct && widget.partial === true;
   const heading = widget.conceded
     ? "Answer revealed"
     : widget.correct
     ? widget.hinted
       ? "Correct — with a hint"
       : "Correct"
+    : partial
+    ? "Close — half credit"
     : "Not quite";
-  const Icon = widget.correct ? Check : X;
+  const Icon = widget.correct ? Check : partial ? Minus : X;
   return (
     <Card
       className={cn(
         "w-full max-w-md mx-auto rounded-2xl",
-        widget.correct ? "bg-green-50/70 border-green-200" : "bg-red-50/60 border-red-200"
+        widget.correct
+          ? "bg-green-50/70 border-green-200"
+          : partial
+          ? "bg-amber-50/70 border-amber-200"
+          : "bg-red-50/60 border-red-200"
       )}
     >
       <CardContent className="p-5 text-center space-y-2">
@@ -39,7 +48,7 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
         <div
           className={cn(
             "flex items-center justify-center gap-1.5",
-            widget.correct ? "text-green-700" : "text-red-600"
+            widget.correct ? "text-green-700" : partial ? "text-amber-700" : "text-red-600"
           )}
         >
           <motion.span
@@ -48,7 +57,7 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
             transition={{ type: "spring", duration: 0.3, bounce: 0 }}
             className={cn(
               "flex h-5 w-5 items-center justify-center rounded-full",
-              widget.correct ? "bg-green-600" : "bg-red-500"
+              widget.correct ? "bg-green-600" : partial ? "bg-amber-500" : "bg-red-500"
             )}
           >
             <Icon className="h-3.5 w-3.5 text-white" strokeWidth={3} aria-hidden="true" />
@@ -73,9 +82,15 @@ export function ReviewVerdict({ widget }: { widget: Extract<Widget, { type: "rev
         </div>
         {!widget.correct && !widget.conceded && widget.submitted && (
           <div className="text-xs text-subtle">
-            You said <span className="line-through decoration-red-300 decoration-1">{widget.submitted}</span>
+            You said{" "}
+            <span className={cn(!partial && "line-through decoration-red-300 decoration-1")}>
+              {widget.submitted}
+            </span>
           </div>
         )}
+        {/* The grader's one-line reason -- a judged verdict (half credit, an
+            accepted synonym) should never look arbitrary. */}
+        {widget.note && <div className="text-xs italic text-subtle">{widget.note}</div>}
         {/* Quiet sentence-case footnote. Instant verdicts render before the
             schedule write returns; the real date is patched in a moment later
             (tabular-nums keeps the swap from shifting) -- or flagged plainly
