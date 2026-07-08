@@ -31,11 +31,14 @@ export function WordBuilder({
   const [submitted, setSubmitted] = useState(false);
   const done = answered || submitted;
   const styles = flavorStyles(widget.flavor);
-  const complete = picked.length === widget.tiles.length;
+  // The bank may hold decoy tiles beyond the answer's length; older
+  // persisted widgets lack `size` and there every tile is part of it.
+  const answerSize = widget.size ?? widget.tiles.length;
+  const complete = picked.length === answerSize;
   const assembled = picked.map((i) => widget.tiles[i]).join(widget.separator);
 
   const pickTile = (index: number) => {
-    if (done || picked.includes(index)) return;
+    if (done || complete || picked.includes(index)) return;
     setPicked((prev) => [...prev, index]);
   };
 
@@ -112,7 +115,11 @@ export function WordBuilder({
           )}
         >
           {picked.length === 0 ? (
-            <span className={cn("text-xs", styles.muted)}>Tap the tiles below to build it</span>
+            <span className={cn("text-xs", styles.muted)}>
+              {widget.tiles.length > answerSize
+                ? "Tap the tiles below to build it — some won't be used"
+                : "Tap the tiles below to build it"}
+            </span>
           ) : (
             picked.map((tileIndex, position) => (
               <button
@@ -137,7 +144,7 @@ export function WordBuilder({
               <button
                 key={index}
                 onClick={() => pickTile(index)}
-                disabled={done || used}
+                disabled={done || used || complete}
                 aria-label={used ? `"${tile}" already placed` : `Add "${tile}"`}
                 className={cn(tileClass, used && "opacity-25")}
               >
