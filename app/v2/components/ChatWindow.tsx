@@ -688,6 +688,20 @@ export function ChatWindow() {
         }
       }
       if (!finalMessage) throw new Error("The tutor's reply was cut off — try again.");
+      // Let the reveal finish typing before the persisted message (full text
+      // + widgets) replaces the placeholder -- a short reply's tail arrives
+      // in the same beat as "done", and swapping right away would snap it to
+      // complete before any typing is seen. Capped so a throttled background
+      // tab can't stall the turn.
+      if (revealShown < revealTarget.length) {
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            const poll = () => (revealShown >= revealTarget.length ? resolve() : window.setTimeout(poll, 40));
+            poll();
+          }),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 2000)),
+        ]);
+      }
       const message = finalMessage;
       setMessages((prev) =>
         placeholderId
