@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ProgressState } from "@/app/v2/lib/types";
 
@@ -51,160 +50,95 @@ function minutesFor(count: number): number {
   return Math.max(1, Math.round(count * 0.4));
 }
 
-// ---------------------------------------------------------------------------
-// The fold: your words in memory order
-// ---------------------------------------------------------------------------
-
-type WordKind = "strong" | "ok" | "fading" | "asleep";
-
-// Fade encodes memory: font weight first (a precise typographic channel),
-// opacity second, blur last and capped so ghosts read intentional.
-const KIND_STYLE: Record<WordKind, string> = {
-  strong: "font-semibold text-gray-900",
-  ok: "font-normal text-gray-800 opacity-90",
-  fading: "font-light text-gray-600 opacity-70 blur-[0.4px]",
-  asleep: "font-light text-gray-500 opacity-35 blur-[1.4px]",
-};
-
-const KIND_LABEL: Record<WordKind, string> = {
-  strong: "bold in your memory",
-  ok: "settled",
-  fading: "losing weight -- review soon",
-  asleep: "below the fold -- review to lift it back",
-};
-
-interface FoldWord {
-  word: ProgressWord;
-  kind: WordKind;
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-subtle">{children}</div>
+  );
 }
 
-const FOLD_SHOWN = 40;
-const ASLEEP_SLOTS = 16;
+// ---------------------------------------------------------------------------
+// Slipping words: only the words that need the user
+// ---------------------------------------------------------------------------
 
-const KIND_RANK: Record<WordKind, number> = { strong: 0, ok: 1, fading: 2, asleep: 3 };
+// The panel used to typeset the user's whole vocabulary; in situ the strong
+// words were 40 lines of bold ink shouting over the conversation. Only words
+// that need attention earn sidebar space now: everything due (most recently
+// slipped first), then the not-yet-due words closest to the fold.
+const SLIPPING_SHOWN = 8;
 
-// Curated, not proportional: the words that need you get guaranteed slots.
-// Every due word makes the page (up to a cap, most recently slipped first),
-// then the strongest fill the rest as backdrop -- so the fold surfaces what
-// matters whether you have 50 words or 5000.
-function buildFold(words: ProgressWord[], now: number): FoldWord[] {
-  const classified = words
-    .filter((w) => w.review_count > 0 || new Date(w.next_review_date).getTime() <= now)
-    .map((w) => {
-      const due = new Date(w.next_review_date).getTime() <= now;
-      const r = retentionNow(w, now) ?? 0;
-      const kind: WordKind = due ? "asleep" : r > 0.75 ? "strong" : r > 0.45 ? "ok" : "fading";
-      return { word: w, kind, r };
-    });
-
-  const asleep = classified
-    .filter((c) => c.kind === "asleep")
-    .sort((a, b) => new Date(b.word.next_review_date).getTime() - new Date(a.word.next_review_date).getTime())
-    .slice(0, ASLEEP_SLOTS);
-  // Select by retention, but DISPLAY in stable order (band, then alphabetical)
-  // so tiny retention drifts between refreshes don't reshuffle the page while
-  // someone is mid-session -- only band changes move a word.
-  const awake = classified
-    .filter((c) => c.kind !== "asleep")
-    .sort((a, b) => b.r - a.r)
-    .slice(0, FOLD_SHOWN - asleep.length)
+function slippingWords(words: ProgressWord[], now: number): ProgressWord[] {
+  const due = words
+    .filter((w) => new Date(w.next_review_date).getTime() <= now)
     .sort(
-      (a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.word.arabizi.localeCompare(b.word.arabizi)
+      (a, b) => new Date(b.next_review_date).getTime() - new Date(a.next_review_date).getTime()
     );
-
-  // Reading order is the axis: strongest ink first, ghosts last.
-  return [...awake, ...asleep];
+  const fading = words
+    .map((w) => ({ w, r: retentionNow(w, now) }))
+    .filter(
+      (x): x is { w: ProgressWord; r: number } =>
+        x.r !== null && x.r < 0.45 && new Date(x.w.next_review_date).getTime() > now
+    )
+    .sort((a, b) => a.r - b.r)
+    .map((x) => x.w);
+  return [...due, ...fading];
 }
 
-function FoldCard({ data, onPrompt }: { data: ProgressData; onPrompt: (text: string) => void }) {
-  const [hovered, setHovered] = useState<FoldWord | null>(null);
+function SlippingSection({ data, onPrompt }: { data: ProgressData; onPrompt: (text: string) => void }) {
   // Recompute only when fresh data lands, never on the clock tick -- the
-  // page holding still matters more than second-level decay accuracy.
-  const fold = useMemo(() => buildFold(data.words, Date.now()), [data.words]);
-  const foldAt = fold.findIndex((f) => f.kind === "asleep");
+  // panel holding still matters more than second-level decay accuracy.
+  const { shown, hidden } = useMemo(() => {
+    const all = slippingWords(data.words, Date.now());
+    return { shown: all.slice(0, SLIPPING_SHOWN), hidden: Math.max(0, all.length - SLIPPING_SHOWN) };
+  }, [data.words]);
   const startedTotal = data.counts.learning + data.counts.learned;
 
-  if (fold.length === 0) {
+  if (data.words.length === 0) {
     return (
-      <section className="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-4">
-        <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-subtle">Your words</div>
-        <p className="mt-2 text-xs text-subtle leading-relaxed">
-          Nothing here yet -- add words or start a pack, and this page fills up with everything you&apos;re
-          learning, strongest first.
+      <section>
+        <SectionLabel>Your words</SectionLabel>
+        <p className="mt-2 text-[13px] leading-relaxed text-subtle">
+          Add words or start a pack, and the ones that need a refresh will gather here.
         </p>
       </section>
     );
   }
 
-  const wordButton = (f: FoldWord) => (
-    <button
-      key={f.word.id}
-      onMouseEnter={() => setHovered(f)}
-      onClick={() => onPrompt(`Quiz me on "${f.word.arabizi}"`)}
-      aria-label={`Quiz me on ${f.word.arabizi}`}
-      className={cn(
-        // Padding (not flex gap) provides the spacing, so tap targets tile
-        // with no dead space; scale (not weight) grows the word in place,
-        // so lines never re-wrap on hover.
-        "inline-block px-[4.5px] py-[2px] text-[13.5px] leading-6 rounded-sm origin-center relative",
-        "transition-[filter,opacity,color,transform] duration-200",
-        "hover:scale-[1.22] hover:opacity-100 hover:blur-0 hover:z-10 hover:text-green-700",
-        "active:scale-[1.1]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600",
-        KIND_STYLE[f.kind]
-      )}
-    >
-      {f.word.arabizi}
-    </button>
-  );
+  // Nothing slipping: one quiet line instead of a wall of words you already
+  // know -- the strongest state of the panel is the emptiest.
+  if (shown.length === 0) {
+    return (
+      <section>
+        <SectionLabel>Your words</SectionLabel>
+        <p className="mt-2 text-[13px] leading-relaxed text-subtle">
+          All {startedTotal} holding strong.
+        </p>
+      </section>
+    );
+  }
 
   return (
-    <section
-      className="rounded-xl bg-white border border-gray-200 shadow-sm"
-      onMouseLeave={() => setHovered(null)}
-    >
-      <div className="px-4 pt-3 flex items-baseline justify-between">
-        <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-subtle">
-          Your words, strongest first
-        </span>
-        <span className="text-[10px] font-mono text-disabled tabular-nums">
-          {fold.length} of {startedTotal}
-        </span>
-      </div>
-      <div className="px-[11px] pt-2 pb-1 select-none">
-        <div className="flex flex-wrap items-baseline">
-          {(foldAt === -1 ? fold : fold.slice(0, foldAt)).map(wordButton)}
-          {foldAt !== -1 && (
-            <>
-              <div className="w-full flex items-center gap-2 my-1.5" aria-hidden="true">
-                <span className="flex-1 border-t border-dashed border-amber-300" />
-                <span className="font-mono text-[9px] tracking-[0.1em] text-amber-600">
-                  THE FOLD · {data.counts.dueNow} ASLEEP BELOW
-                </span>
-                <span className="flex-1 border-t border-dashed border-amber-300" />
-              </div>
-              {fold.slice(foldAt).map(wordButton)}
-            </>
-          )}
-        </div>
-      </div>
-      <div className="h-[48px] mx-3 mb-2.5 mt-1">
-        {hovered ? (
-          <div className="h-full flex items-center rounded-lg bg-gray-50 px-3 leading-tight">
-            <div className="min-w-0">
-              <div className="truncate">
-                <span className="text-sm font-semibold text-heading">{hovered.word.arabizi}</span>
-                <span className="ml-2 text-xs text-subtle">{hovered.word.english}</span>
-              </div>
-              <div className="font-mono text-[10px] text-disabled mt-0.5">{KIND_LABEL[hovered.kind]}</div>
-            </div>
-          </div>
-        ) : (
-          <div className="h-full flex items-center justify-end px-1.5 text-[10px] font-mono text-disabled">
-            tap a word to quiz it
-          </div>
+    <section>
+      <div className="flex items-baseline justify-between">
+        <SectionLabel>Slipping away</SectionLabel>
+        {hidden > 0 && (
+          <span className="text-[10px] font-mono text-disabled tabular-nums">+{hidden} more</span>
         )}
       </div>
+      {/* Padding (not flex gap) provides the spacing, so tap targets tile
+          with no dead space; -mx keeps the text optically flush left. */}
+      <div className="mt-1 -mx-1.5 flex flex-wrap">
+        {shown.map((w) => (
+          <button
+            key={w.id}
+            onClick={() => onPrompt(`Quiz me on "${w.arabizi}"`)}
+            aria-label={`Quiz me on ${w.arabizi}`}
+            className="px-1.5 py-1 text-[13px] leading-5 text-body rounded-md transition-[color,transform] hover:text-green-700 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600"
+          >
+            {w.arabizi}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[10px] font-mono text-disabled">tap a word to wake it</p>
     </section>
   );
 }
@@ -232,10 +166,8 @@ function NextAction({
     .sort((a, b) => a - b)[0];
 
   return (
-    <section className="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3.5 shrink-0">
-      <div className="text-[10px] font-mono uppercase tracking-[0.14em] text-subtle">
-        {isBacklog ? "Recovery plan" : "Next up"}
-      </div>
+    <section className="shrink-0">
+      <SectionLabel>{isBacklog ? "Recovery plan" : "Next up"}</SectionLabel>
       {isBacklog ? (
         <>
           <p className="mt-1.5 text-[13px] leading-snug text-body">
@@ -251,7 +183,7 @@ function NextAction({
           </button>
           <button
             onClick={() => onPrompt("Start a full review session")}
-            className="mt-1.5 w-full h-10 rounded-lg text-[13px] font-medium text-subtle hover:bg-gray-50 active:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 transition-colors"
+            className="mt-1.5 w-full h-10 rounded-lg text-[13px] font-medium text-subtle hover:bg-black/[0.04] active:bg-black/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 transition-colors"
           >
             I have time -- full session ({minutesFor(25)} min)
           </button>
@@ -308,7 +240,7 @@ function Stats({ data, now }: { data: ProgressData; now: number }) {
   const reviewedToday = reviewed.filter((w) => new Date(w.updated_at).getTime() >= todayStart).length;
 
   return (
-    <section className="rounded-xl bg-white border border-gray-200 shadow-sm px-4 py-3 grid grid-cols-3 shrink-0">
+    <section className="mt-auto grid grid-cols-3 shrink-0 pt-6">
       <div>
         <div className="font-mono text-[15px] tabular-nums text-heading leading-6">{reviewedToday}</div>
         <div className="font-mono text-[9px] uppercase tracking-[0.12em] text-disabled mt-0.5">Today</div>
@@ -331,6 +263,11 @@ function Stats({ data, now }: { data: ProgressData; now: number }) {
 // sidebar and the mobile drawer, so the drawer never opens onto a spinner.
 // onPrompt sends the given text to the tutor chat (and closes the drawer on
 // mobile) -- every word and button in the panel is a door into the chat.
+//
+// The panel is deliberately chromeless: quiet type sitting directly on the
+// page background, no cards, borders, or dividers. Cards belong to the
+// conversation (review widgets, the composer); ambient status shouldn't
+// compete with them.
 export function ProgressPanel({
   data,
   onPrompt,
@@ -339,38 +276,36 @@ export function ProgressPanel({
   data: ProgressData | null;
   onPrompt?: (text: string) => void;
   /** true while a review card or verdict is on screen -- the panel goes
-   * quiet: no competing call-to-action, the fold and stats hold still. */
+   * quiet: no competing call-to-action, the words and stats hold still. */
   reviewing?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
 
-  // Live tick: drives the countdown and lets the fold's ordering and
-  // retention estimates decay in real time while the panel is open.
+  // Live tick: drives the countdown and the retention estimate.
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
   if (!data) {
-    // Structural skeleton mirroring the three panel sections, so the drawer
+    // Structural skeleton mirroring the panel's sections, so the drawer
     // opens onto the panel's shape instead of a bare loading string.
     return (
-      <div className="flex flex-col h-full p-3 gap-2.5" aria-busy="true" aria-label="Loading progress">
-        <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <Skeleton className="h-3 w-36" />
-            <Skeleton className="h-3 w-12" />
-          </div>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-4 w-full" />
-          ))}
+      <div className="flex flex-col h-full px-5 py-6 gap-7" aria-busy="true" aria-label="Loading progress">
+        <div className="space-y-2.5">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-11 w-full rounded-lg" />
         </div>
-        <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4 space-y-2.5">
+        <div className="space-y-2.5">
           <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-10 w-full rounded-lg" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-2/3" />
         </div>
-        <div className="rounded-xl bg-white border border-gray-200 shadow-sm p-4">
-          <Skeleton className="h-8 w-full" />
+        <div className="mt-auto grid grid-cols-3 gap-3">
+          <Skeleton className="h-9" />
+          <Skeleton className="h-9" />
+          <Skeleton className="h-9" />
         </div>
       </div>
     );
@@ -379,9 +314,9 @@ export function ProgressPanel({
   const send = onPrompt ?? (() => {});
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto p-3 gap-2.5">
-      <FoldCard data={data} onPrompt={send} />
+    <div className="flex flex-col h-full overflow-y-auto px-5 py-6 gap-7">
       {!reviewing && <NextAction data={data} now={now} onPrompt={send} />}
+      <SlippingSection data={data} onPrompt={send} />
       <Stats data={data} now={now} />
     </div>
   );

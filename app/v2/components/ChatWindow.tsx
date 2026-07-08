@@ -1465,7 +1465,7 @@ export function ChatWindow() {
               </button>
             </DrawerTrigger>
             <DrawerContent
-              className="h-[86dvh] bg-gray-50"
+              className="h-[86dvh] bg-white"
               style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
             >
               <DrawerTitle className="sr-only">Progress</DrawerTitle>
@@ -1745,7 +1745,9 @@ export function ChatWindow() {
         </div>
       </div>
 
-      <aside className="hidden lg:flex w-72 shrink-0 border-l flex-col bg-gray-50/60">
+      {/* No border or panel background: the progress column is quiet type
+          sitting on the same gradient as the chat, not a second surface. */}
+      <aside className="hidden lg:flex w-72 shrink-0 flex-col">
         <ProgressPanel
           data={progressData}
           reviewing={inReviewSession}
