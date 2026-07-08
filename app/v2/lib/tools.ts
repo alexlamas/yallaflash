@@ -4,6 +4,7 @@ import { calculateNextReview } from "@/app/services/spacedRepetitionService";
 import type { DueWord, ReviewContext, ReviewCue, Widget, WordProposal } from "./types";
 import { DEFAULT_LANGUAGE } from "./language";
 import { randomFlavor } from "./cardFlavors";
+import { leakFreeEnglish } from "./leakGuard";
 import { buildTiles } from "./tiles";
 import { levelForProgress, tierForLevel, type WordLevel } from "./levels";
 
@@ -177,6 +178,28 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "suggest_chips",
+    description:
+      'Offer up to 3 quick-reply chips above the chat input for the likeliest next actions -- use when the obvious next step is not covered by the standard buttons (e.g. after deleting the word whose card was on the table, offer "Next word"). label is what the user sees; send is the message a tap sends. Use send "next" to serve the next due card directly.',
+    input_schema: {
+      type: "object",
+      properties: {
+        chips: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string", description: "Short button text, 1-3 words" },
+              send: { type: "string", description: 'The message tapping it sends ("next" serves the next card)' },
+            },
+            required: ["label", "send"],
+          },
+        },
+      },
+      required: ["chips"],
+    },
+  },
+  {
     name: "propose_words",
     description:
       "Stage parsed vocabulary as a preview widget for the user to confirm. Does not write to the database -- confirmation happens outside you.",
@@ -255,6 +278,8 @@ export async function executeTool(
       return updateInstructions(ctx, String(input.instructions ?? ""));
     case "propose_words":
       return proposeWords(input.proposals as WordProposal[]);
+    case "suggest_chips":
+      return suggestChips(input.chips);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -431,6 +456,8 @@ export function buildServedLine(
       : widget.context
       ? `the ${DEFAULT_LANGUAGE.romanization} missing from a sentence`
       : `the ${DEFAULT_LANGUAGE.romanization} from memory`
+    : "context" in widget && widget.context
+    ? `the English meaning -- the word is shown inside a ${DEFAULT_LANGUAGE.name} sentence for context`
     : "the English meaning";
   return `[SERVED] word_id=${word.id} arabizi="${word.arabizi}" english="${word.english}"${widget.level !== undefined ? ` level=${widget.level}` : ""} tier=${widget.tier} asks=${asksTarget ? "arabizi" : "english"} -- the app served this card directly; the user hasn't answered yet. The card asks for ${asks}.`;
 }
@@ -513,9 +540,15 @@ export async function buildReviewWidget(
   level: WordLevel,
   contextSentence?: ContextSentenceInput
 ): Promise<Widget> {
+  // The stored english can embed a usage example that contains the word
+  // itself ("mind / attention (as in 'khalli belak')") -- shown on a card it
+  // gives the answer away in both directions, so every displayed english
+  // goes through the leak guard. The guarded text still grades as an exact
+  // match (englishVariants covers the parens-free form).
+  const english = leakFreeEnglish(word.english, word.arabizi);
   // Ground truth rides along (not rendered on the card) so the client can
   // grade exact matches instantly instead of waiting on a round trip.
-  const answer = { arabizi: word.arabizi, english: word.english };
+  const answer = { arabizi: word.arabizi, english };
   // The word's numbered level decides the FORMAT (see levels.ts for the
   // ladder); only the visual flavor and prompt phrasing stay random, so a
   // session still reads as a shuffled deck without the difficulty drifting.
@@ -523,12 +556,16 @@ export async function buildReviewWidget(
   const tier = tierForLevel(level);
   const rom = DEFAULT_LANGUAGE.romanization;
   const sentence = usableSentence(contextSentence, word.arabizi);
+  // A whole sentence stored as a "word" makes a ludicrous quoted prompt --
+  // long cues get referred to as "this", never re-quoted.
+  const shortWord = word.arabizi.length <= 24;
+  const shortEnglish = english.length <= 30;
 
   // Levels 4-5: cold production -- type the word from memory. A supplied
   // sentence turns it into fill-in-the-blank (most natural at level 5,
   // where the word is established and context is the remaining challenge).
   if (level >= 4) {
-    const cue: ReviewCue = { english: word.english, memory_hook: word.memory_hook };
+    const cue: ReviewCue = { english, memory_hook: word.memory_hook };
     // Cloze: the word is blanked out HERE, so the rendered widget never
     // carries the sentence with the answer still in it.
     const context: ReviewContext | undefined = sentence
@@ -544,11 +581,13 @@ export async function buildReviewWidget(
             `Fill the blank — type the missing ${rom}.`,
             `Complete the sentence — what's the missing word?`,
           ])
-        : pick([
-            `Type the ${rom} for "${word.english}" — no options, from memory.`,
-            `How do you say "${word.english}"? Type the ${rom}.`,
-            `You need "${word.english}" mid-conversation — type it in ${rom}.`,
-          ]),
+        : shortEnglish
+        ? pick([
+            `Type the ${rom} for "${english}" — no options, from memory.`,
+            `How do you say "${english}"? Type the ${rom}.`,
+            `You need "${english}" mid-conversation — type it in ${rom}.`,
+          ])
+        : `How do you say this? Type the ${rom} from memory.`,
       cue,
       answer,
       flavor,
@@ -564,12 +603,16 @@ export async function buildReviewWidget(
   // translation is deliberately dropped here, never just hidden client-side.
   const context: ReviewContext | undefined = sentence ? { target: sentence.target } : undefined;
   const recognitionPrompt = context
-    ? `What does "${word.arabizi}" mean here?`
-    : pick([
+    ? shortWord
+      ? `What does "${word.arabizi}" mean here?`
+      : "What does this mean here?"
+    : shortWord
+    ? pick([
         `What does "${word.arabizi}" mean?`,
         `You overhear "${word.arabizi}" — what did they say?`,
         `Quick one: "${word.arabizi}" in English?`,
-      ]);
+      ])
+    : "What does this mean?";
 
   // Level 3: typed meaning, no options.
   if (level === 3) {
@@ -600,15 +643,19 @@ export async function buildReviewWidget(
       level,
       prompt:
         tileSet.separator === " "
+          ? shortEnglish
+            ? pick([
+                `Put the words in order for "${english}".`,
+                `Arrange the tiles — how do you say "${english}"?`,
+              ])
+            : "Put the words in order — how do you say this?"
+          : shortEnglish
           ? pick([
-              `Put the words in order for "${word.english}".`,
-              `Arrange the tiles — how do you say "${word.english}"?`,
+              `Build the word for "${english}" from the tiles.`,
+              `Tap the letters in order — how do you say "${english}"?`,
             ])
-          : pick([
-              `Build the word for "${word.english}" from the tiles.`,
-              `Tap the letters in order — how do you say "${word.english}"?`,
-            ]),
-      cue: { english: word.english, memory_hook: word.memory_hook },
+          : "Build it from the tiles — how do you say this?",
+      cue: { english, memory_hook: word.memory_hook },
       tiles: tileSet.tiles,
       separator: tileSet.separator,
       size: tileSet.size,
@@ -630,8 +677,10 @@ export async function buildReviewWidget(
       tier,
       level,
       direction: "to_target",
-      prompt: pick([`Which one means "${word.english}"?`, `Pick the word for "${word.english}".`]),
-      cue: { english: word.english },
+      prompt: shortEnglish
+        ? pick([`Which one means "${english}"?`, `Pick the word for "${english}".`])
+        : "Which one means this?",
+      cue: { english },
       options: shuffle([word.arabizi, ...distractors]),
       answer,
       flavor,
@@ -639,7 +688,9 @@ export async function buildReviewWidget(
   }
 
   // Level 0 (and any context-carrying card below level 3): recognition
-  // multiple choice.
+  // multiple choice. Distractors get the same leak guard against THIS
+  // word -- an option that happens to mention the cue word would pull
+  // clicks the same way the answer's own example did.
   const distractors = await getDistractors(ctx, word, "english");
   return {
     type: "quiz_mc",
@@ -649,7 +700,7 @@ export async function buildReviewWidget(
     direction: "to_english",
     prompt: recognitionPrompt,
     cue,
-    options: shuffle([word.english, ...distractors]),
+    options: shuffle([english, ...distractors.map((option) => leakFreeEnglish(option, word.arabizi))]),
     answer,
     flavor,
     context,
@@ -1042,6 +1093,23 @@ function proposeWords(proposals: WordProposal[]): { result: unknown; widget?: Wi
   return {
     result: { staged: proposals.length },
     widget: { type: "add_words_preview", proposals },
+  };
+}
+
+function suggestChips(input: unknown): { result: unknown; widget?: Widget } {
+  const chips = (Array.isArray(input) ? input : [])
+    .map((chip) => ({
+      label: String((chip as { label?: unknown })?.label ?? "").trim(),
+      send: String((chip as { send?: unknown })?.send ?? "").trim(),
+    }))
+    .filter((chip) => chip.label && chip.send)
+    .slice(0, 3);
+  if (chips.length === 0) {
+    return { result: { error: "No usable chips given -- each needs a label and a send message." } };
+  }
+  return {
+    result: { offered: chips.map((chip) => chip.label) },
+    widget: { type: "suggested_chips", chips },
   };
 }
 

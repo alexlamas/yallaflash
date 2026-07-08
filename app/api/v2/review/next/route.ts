@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getApiAuth } from "@/utils/supabase/api";
 import { errorMessage, validateRequest } from "@/app/api/utils";
 import { buildReviewWidget, buildServedLine, getDefaultLanguageId, levelForProgress } from "@/app/v2/lib/tools";
+import { maybeContextSentence } from "@/app/v2/lib/sentenceGen";
 import type { Widget } from "@/app/v2/lib/types";
 
 // Serves the next due card deterministically -- one DB round trip, no model
@@ -14,6 +15,10 @@ import type { Widget } from "@/app/v2/lib/types";
 //                  rendered it instantly, the conversation record catches up
 // When nothing is due, returns { done: true } and the client owns the
 // session-cleared moment (summary card built from its own tally).
+
+// Sentence generation adds a bounded model call on top of the DB round
+// trips; Vercel's default 10s leaves no headroom for a slow cold start.
+export const maxDuration = 15;
 
 type NextCardRequest = {
   conversationId: string;
@@ -106,7 +111,12 @@ export async function POST(req: Request) {
       review_count: row.review_count,
       interval: row.interval,
     });
-    const widget = await buildReviewWidget(ctx, word, level);
+    // Best-effort natural framing: some cards get the word wrapped in a
+    // short generated sentence (untranslated context on recognition,
+    // fill-in-the-blank on production), like a teacher testing it in use.
+    // Bounded by a tight timeout; the prefetch path hides it entirely.
+    const sentence = await maybeContextSentence(word, level);
+    const widget = await buildReviewWidget(ctx, word, level, sentence ?? undefined);
 
     if (peek) {
       return NextResponse.json({ widget });

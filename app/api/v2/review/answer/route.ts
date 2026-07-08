@@ -44,8 +44,14 @@ export async function POST(req: Request) {
       .from("v2_words")
       .select("arabizi, english, script, etymology_note, etymology_confidence")
       .eq("id", wordId)
-      .single();
+      .maybeSingle();
     if (wordError) throw wordError;
+    // The word was deleted while its card sat on the table (tutor-side
+    // delete_words) -- there is nothing to grade or schedule. Tell the
+    // client the card is void instead of 500ing the answer.
+    if (!word) {
+      return NextResponse.json({ voided: true });
+    }
 
     // Easy tier is multiple choice -- clicked options must match exactly,
     // so the synonym fallback stays off there. Reversed multiple choice

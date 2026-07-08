@@ -25,6 +25,8 @@ export interface WidgetActions {
   // Decline a confirm-style widget (pack list, word picker, preview) so it
   // stops gating the action chips.
   onDismiss: () => void;
+  // "I don't know" on a review card: reveal the answer as a conceded miss.
+  onConcede?: () => void;
 }
 
 export function WidgetRenderer({
@@ -55,13 +57,13 @@ export function WidgetRenderer({
     case "word_card":
       return <WordCard word={widget.word} imageUrl={widget.image_url} active={active} />;
     case "quiz_mc":
-      return <QuizMC widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
+      return <QuizMC widget={widget} onAnswer={actions.onAnswer} onConcede={actions.onConcede} active={active} answered={answered} />;
     case "recall_input":
-      return <RecallInput widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
+      return <RecallInput widget={widget} onAnswer={actions.onAnswer} onConcede={actions.onConcede} active={active} answered={answered} />;
     case "produce_cold":
-      return <ProduceCold widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
+      return <ProduceCold widget={widget} onAnswer={actions.onAnswer} onConcede={actions.onConcede} active={active} answered={answered} />;
     case "word_builder":
-      return <WordBuilder widget={widget} onAnswer={actions.onAnswer} active={active} answered={answered} />;
+      return <WordBuilder widget={widget} onAnswer={actions.onAnswer} onConcede={actions.onConcede} active={active} answered={answered} />;
     case "add_words_preview":
       return (
         <AddWordsPreview
@@ -88,6 +90,9 @@ export function WidgetRenderer({
       return <InstructionsEditor initial={widget.instructions} />;
     case "session_summary":
       return <SessionSummary widget={widget} />;
+    case "suggested_chips":
+      // Rendered by the chat footer next to the standard chips, not inline.
+      return null;
     default:
       return null;
   }

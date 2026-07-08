@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { flavorStyles } from "@/app/v2/lib/cardFlavors";
+import { IDontKnow } from "./IDontKnow";
 import type { Widget } from "@/app/v2/lib/types";
 
 type WordBuilderWidget = Extract<Widget, { type: "word_builder" }>;
@@ -15,11 +16,13 @@ type WordBuilderWidget = Extract<Widget, { type: "word_builder" }>;
 export function WordBuilder({
   widget,
   onAnswer,
+  onConcede,
   active = false,
   answered = false,
 }: {
   widget: WordBuilderWidget;
   onAnswer: (wordId: string, tier: WordBuilderWidget["tier"], submitted: string) => Promise<boolean>;
+  onConcede?: () => void;
   active?: boolean;
   // Durable answered state -- local state resets on remount, which once
   // brought an old card back to life.
@@ -157,6 +160,7 @@ export function WordBuilder({
         <Button disabled={done || !complete} onClick={handleSubmit} className={cn("w-full", styles.button)}>
           Submit
         </Button>
+        {active && !done && <IDontKnow onConcede={onConcede} className={styles.muted} />}
       </CardContent>
     </Card>
   );

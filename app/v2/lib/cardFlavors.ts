@@ -121,3 +121,20 @@ export const FLAVOR_STYLES: Record<CardFlavor, FlavorStyles> = {
 export function flavorStyles(flavor: string | undefined): FlavorStyles {
   return FLAVOR_STYLES[(flavor ?? "classic") as CardFlavor] ?? FLAVOR_STYLES.classic;
 }
+
+// Page-level wash behind each flavor: the chat shell cross-fades these so
+// the backdrop follows the card on stage instead of clashing with it.
+// classic keeps the shell's original green; night gets a light dusk tint --
+// a truly dark page would invert the whole shell around one card.
+export const FLAVOR_WASHES: Record<CardFlavor, string> = {
+  classic: "bg-gradient-to-b from-green-50/80 via-white to-white",
+  mint: "bg-gradient-to-b from-emerald-50 via-white to-white",
+  sand: "bg-gradient-to-b from-amber-50/90 via-white to-white",
+  sky: "bg-gradient-to-b from-sky-50/90 via-white to-white",
+  rose: "bg-gradient-to-b from-rose-50/80 via-white to-white",
+  night: "bg-gradient-to-b from-slate-200/60 via-white to-white",
+};
+
+export function flavorWash(flavor: string | undefined): string {
+  return FLAVOR_WASHES[(flavor ?? "classic") as CardFlavor] ?? FLAVOR_WASHES.classic;
+}
