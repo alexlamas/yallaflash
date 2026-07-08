@@ -74,25 +74,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ conversationId, message: assistantMessage });
     }
 
-    await insertMessage(supabase, conversationId, "user", body.message, []);
+    // These four round trips are independent, and the function may sit an
+    // ocean away from the database -- run them concurrently, it's seconds of
+    // time-to-first-token. The history select races the user-message insert,
+    // so the new turn may or may not be in the result; it's reconciled below.
+    const [, historyResult, languageId, settingsResult] = await Promise.all([
+      insertMessage(supabase, conversationId, "user", body.message, []),
+      supabase
+        .from("v2_messages")
+        .select("role, content")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true }),
+      getDefaultLanguageId(supabase),
+      // The user-editable slice of the tutor's behavior rides at the end of
+      // the system prompt; the tutor can rewrite it via update_instructions.
+      supabase
+        .from("v2_user_settings")
+        .select("tutor_instructions")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+    if (historyResult.error) throw historyResult.error;
+    let historyRows = historyResult.data;
+    // If the select won the race, this turn's user message is missing --
+    // append it. (When the insert won, it's necessarily the last row.)
+    const lastRow = historyRows?.[historyRows.length - 1];
+    if (!lastRow || lastRow.role !== "user" || lastRow.content !== body.message) {
+      historyRows = [...(historyRows ?? []), { role: "user", content: body.message }];
+    }
 
-    const { data: historyRows, error: historyError } = await supabase
-      .from("v2_messages")
-      .select("role, content")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
-    if (historyError) throw historyError;
-
-    const languageId = await getDefaultLanguageId(supabase);
     const ctx = { supabase, userId: user.id, languageId };
-
-    // The user-editable slice of the tutor's behavior rides at the end of
-    // the system prompt; the tutor can rewrite it via update_instructions.
-    const { data: settings } = await supabase
-      .from("v2_user_settings")
-      .select("tutor_instructions")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const settings = settingsResult.data;
     const instructions = settings?.tutor_instructions?.trim() || DEFAULT_TUTOR_INSTRUCTIONS;
     // Prompt caching: tools + the static prompt + the per-user instructions
     // are stable across turns, so cache breakpoints cut latency (and cost)

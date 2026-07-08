@@ -5,7 +5,10 @@
 // your answer") from ordinary tutor thinking.
 export function TypingIndicator({ label }: { label?: string }) {
   return (
-    <div className="w-full max-w-md mx-auto flex items-center gap-2.5" aria-live="polite">
+    // Left-anchored like TutorStrip so the avatar sits exactly where the
+    // tutor's next bubble will land -- centered, it floated between the
+    // bubble column and the cards and lined up with neither.
+    <div className="w-full max-w-lg flex items-center gap-2.5" aria-live="polite">
       <img src="/logo.svg" alt="" className="w-6 h-6 shrink-0" />
       <div className="flex items-center gap-2 rounded-2xl bg-white border border-gray-200 shadow-sm px-3.5 py-2.5">
         <span className="flex items-center gap-1">
