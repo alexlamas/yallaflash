@@ -1,9 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
-// Hit daily by a Vercel cron (see vercel.json) so the Supabase free-tier
-// project never goes 7 days without activity and gets paused.
+// Hit by Vercel crons (see vercel.json) so the Supabase free-tier project
+// never looks inactive and gets paused. Supabase wants "a few user requests
+// to the database each day", so each run reads several public tables.
 export const dynamic = "force-dynamic";
+
+const TABLES = ["packs", "words", "sentences", "songs"];
 
 export async function GET(req: NextRequest) {
   // Vercel sends `Authorization: Bearer $CRON_SECRET` when CRON_SECRET is set.
@@ -18,12 +21,18 @@ export async function GET(req: NextRequest) {
     { auth: { persistSession: false } }
   );
 
-  const { error } = await supabase.from("packs").select("id").limit(1);
+  const results = await Promise.all(
+    TABLES.map((table) => supabase.from(table).select("id").limit(1))
+  );
+  const errors = results
+    .map(({ error }, i) => (error ? `${TABLES[i]}: ${error.message}` : null))
+    .filter(Boolean);
 
-  if (error) {
-    console.error("Keep-alive query failed:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (errors.length === TABLES.length) {
+    console.error("Keep-alive queries failed:", errors);
+    return NextResponse.json({ ok: false, errors }, { status: 500 });
   }
+  if (errors.length) console.warn("Some keep-alive queries failed:", errors);
 
   return NextResponse.json({ ok: true, at: new Date().toISOString() });
 }
